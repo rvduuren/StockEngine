@@ -1,0 +1,1010 @@
+diff --git a/README.md b/README.md
+index 293d10f..3323f65 100644
+--- a/README.md
++++ b/README.md
+@@ -6,9 +6,9 @@ Transactional, idempotent stock engine for WMS. MariaDB (InnoDB) + Dapper + MySq
+ 
+ | Operation | Effect |
+ |-----------|--------|
+-| **Inbound** | Increase quantity at a location |
++| **Inbound** | Increase quantity at a bin |
+ | **Outbound** | Decrease quantity (rejects negative stock) |
+-| **Move** | Transfer between locations (2 history rows per line) |
++| **Move** | Transfer between bins in a warehouse (2 history rows per line) |
+ | **Count** | Set absolute quantity |
+ 
+ Client-supplied `TransactionId` (UUID) is the idempotency key:
+@@ -20,10 +20,11 @@ All work (claim transaction, inventory update, history insert) runs in a single
+ 
+ ## Tables
+ 
+-1. `inventory` — current balances  
++1. `inventory` — current balances, PK `(warehouse, zone, bin, sku)`  
+ 2. `inventory_history` — append-only ledger (`history_id` BIGINT AUTO_INCREMENT)  
+ 3. `inventory_transaction` — idempotency claims (`transaction_id`, `request_hash`)
+ 
++Location identity is hierarchical: `warehouse` (INT), `zone` (INT), `bin` (INT), `sku` (BIGINT).  
+ `document_no` and `document_line_id` live on `inventory_history`. One `TransactionId` may produce multiple history rows.
+ 
+ ## Solution layout
+@@ -72,6 +73,6 @@ var result = await engine.InboundAsync(new InboundStockCommand(
+     DocumentNo: "ASN-100",
+     Lines:
+     [
+-        new InboundStockLine("1", "WH1", "A-01", "SKU-1", 10m)
++        new InboundStockLine("1", Warehouse: 1, Zone: 10, Bin: 100, Sku: 10001, Quantity: 10m)
+     ]));
+ ```
+diff --git a/src/Warehouse.StockEngine.Core/Commands/CountStockCommand.cs b/src/Warehouse.StockEngine.Core/Commands/CountStockCommand.cs
+index 908fe72..8b14148 100644
+--- a/src/Warehouse.StockEngine.Core/Commands/CountStockCommand.cs
++++ b/src/Warehouse.StockEngine.Core/Commands/CountStockCommand.cs
+@@ -7,7 +7,8 @@ public sealed record CountStockCommand(
+ 
+ public sealed record CountStockLine(
+     string DocumentLineId,
+-    string WarehouseCode,
+-    string LocationCode,
+-    string ItemCode,
++    int Warehouse,
++    int Zone,
++    int Bin,
++    long Sku,
+     decimal CountedQuantity);
+diff --git a/src/Warehouse.StockEngine.Core/Commands/InboundStockCommand.cs b/src/Warehouse.StockEngine.Core/Commands/InboundStockCommand.cs
+index 41ba6f6..35c48c2 100644
+--- a/src/Warehouse.StockEngine.Core/Commands/InboundStockCommand.cs
++++ b/src/Warehouse.StockEngine.Core/Commands/InboundStockCommand.cs
+@@ -7,7 +7,8 @@ public sealed record InboundStockCommand(
+ 
+ public sealed record InboundStockLine(
+     string DocumentLineId,
+-    string WarehouseCode,
+-    string LocationCode,
+-    string ItemCode,
++    int Warehouse,
++    int Zone,
++    int Bin,
++    long Sku,
+     decimal Quantity);
+diff --git a/src/Warehouse.StockEngine.Core/Commands/MoveStockCommand.cs b/src/Warehouse.StockEngine.Core/Commands/MoveStockCommand.cs
+index 944c71f..d3bb320 100644
+--- a/src/Warehouse.StockEngine.Core/Commands/MoveStockCommand.cs
++++ b/src/Warehouse.StockEngine.Core/Commands/MoveStockCommand.cs
+@@ -7,8 +7,10 @@ public sealed record MoveStockCommand(
+ 
+ public sealed record MoveStockLine(
+     string DocumentLineId,
+-    string WarehouseCode,
+-    string FromLocationCode,
+-    string ToLocationCode,
+-    string ItemCode,
++    int Warehouse,
++    int FromZone,
++    int FromBin,
++    int ToZone,
++    int ToBin,
++    long Sku,
+     decimal Quantity);
+diff --git a/src/Warehouse.StockEngine.Core/Commands/OutboundStockCommand.cs b/src/Warehouse.StockEngine.Core/Commands/OutboundStockCommand.cs
+index caedfe7..f3a00be 100644
+--- a/src/Warehouse.StockEngine.Core/Commands/OutboundStockCommand.cs
++++ b/src/Warehouse.StockEngine.Core/Commands/OutboundStockCommand.cs
+@@ -7,7 +7,8 @@ public sealed record OutboundStockCommand(
+ 
+ public sealed record OutboundStockLine(
+     string DocumentLineId,
+-    string WarehouseCode,
+-    string LocationCode,
+-    string ItemCode,
++    int Warehouse,
++    int Zone,
++    int Bin,
++    long Sku,
+     decimal Quantity);
+diff --git a/src/Warehouse.StockEngine.Core/Exceptions/InsufficientStockException.cs b/src/Warehouse.StockEngine.Core/Exceptions/InsufficientStockException.cs
+index 8b1ddd6..18dfdc0 100644
+--- a/src/Warehouse.StockEngine.Core/Exceptions/InsufficientStockException.cs
++++ b/src/Warehouse.StockEngine.Core/Exceptions/InsufficientStockException.cs
+@@ -2,19 +2,21 @@ namespace Warehouse.StockEngine.Core.Exceptions;
+ 
+ public sealed class InsufficientStockException : Exception
+ {
+-    public InsufficientStockException(string warehouseCode, string locationCode, string itemCode, decimal requested, decimal available)
+-        : base($"Insufficient stock for {warehouseCode}/{locationCode}/{itemCode}: requested {requested}, available {available}.")
++    public InsufficientStockException(int warehouse, int zone, int bin, long sku, decimal requested, decimal available)
++        : base($"Insufficient stock for {warehouse}/{zone}/{bin}/{sku}: requested {requested}, available {available}.")
+     {
+-        WarehouseCode = warehouseCode;
+-        LocationCode = locationCode;
+-        ItemCode = itemCode;
++        Warehouse = warehouse;
++        Zone = zone;
++        Bin = bin;
++        Sku = sku;
+         Requested = requested;
+         Available = available;
+     }
+ 
+-    public string WarehouseCode { get; }
+-    public string LocationCode { get; }
+-    public string ItemCode { get; }
++    public int Warehouse { get; }
++    public int Zone { get; }
++    public int Bin { get; }
++    public long Sku { get; }
+     public decimal Requested { get; }
+     public decimal Available { get; }
+ }
+diff --git a/src/Warehouse.StockEngine.Core/Interfaces/IStockEngine.cs b/src/Warehouse.StockEngine.Core/Interfaces/IStockEngine.cs
+index b98a293..9035fac 100644
+--- a/src/Warehouse.StockEngine.Core/Interfaces/IStockEngine.cs
++++ b/src/Warehouse.StockEngine.Core/Interfaces/IStockEngine.cs
+@@ -14,8 +14,9 @@ public interface IStockEngine
+     Task<StockResult> CountAsync(CountStockCommand command, CancellationToken cancellationToken = default);
+ 
+     Task<decimal> GetQuantityAsync(
+-        string warehouseCode,
+-        string locationCode,
+-        string itemCode,
++        int warehouse,
++        int zone,
++        int bin,
++        long sku,
+         CancellationToken cancellationToken = default);
+ }
+diff --git a/src/Warehouse.StockEngine.Infrastructure.MariaDb/Database/Migrations/001_InitialSchema.sql b/src/Warehouse.StockEngine.Infrastructure.MariaDb/Database/Migrations/001_InitialSchema.sql
+index 547265c..37443c8 100644
+--- a/src/Warehouse.StockEngine.Infrastructure.MariaDb/Database/Migrations/001_InitialSchema.sql
++++ b/src/Warehouse.StockEngine.Infrastructure.MariaDb/Database/Migrations/001_InitialSchema.sql
+@@ -13,12 +13,13 @@ CREATE TABLE IF NOT EXISTS inventory_transaction (
+ ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+ 
+ CREATE TABLE IF NOT EXISTS inventory (
+-    warehouse_code  VARCHAR(50)    NOT NULL,
+-    location_code   VARCHAR(50)    NOT NULL,
+-    item_code       VARCHAR(50)    NOT NULL,
+-    quantity        DECIMAL(18,4)  NOT NULL DEFAULT 0,
+-    updated_at      DATETIME(6)    NOT NULL,
+-    PRIMARY KEY (warehouse_code, location_code, item_code),
++    warehouse   INT            NOT NULL,
++    zone        INT            NOT NULL,
++    bin         INT            NOT NULL,
++    sku         BIGINT         NOT NULL,
++    quantity    DECIMAL(18,4)  NOT NULL DEFAULT 0,
++    updated_at  DATETIME(6)    NOT NULL,
++    PRIMARY KEY (warehouse, zone, bin, sku),
+     CONSTRAINT chk_inventory_quantity_non_negative CHECK (quantity >= 0)
+ ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+ 
+@@ -28,9 +29,10 @@ CREATE TABLE IF NOT EXISTS inventory_history (
+     document_no        VARCHAR(100)   NOT NULL,
+     document_line_id   VARCHAR(100)   NOT NULL,
+     movement_type      VARCHAR(20)    NOT NULL,
+-    warehouse_code     VARCHAR(50)    NOT NULL,
+-    location_code      VARCHAR(50)    NOT NULL,
+-    item_code          VARCHAR(50)    NOT NULL,
++    warehouse          INT            NOT NULL,
++    zone               INT            NOT NULL,
++    bin                INT            NOT NULL,
++    sku                BIGINT         NOT NULL,
+     quantity_delta     DECIMAL(18,4)  NOT NULL,
+     quantity_before    DECIMAL(18,4)  NOT NULL,
+     quantity_after     DECIMAL(18,4)  NOT NULL,
+diff --git a/src/Warehouse.StockEngine.Infrastructure.MariaDb/Execution/CommandValidator.cs b/src/Warehouse.StockEngine.Infrastructure.MariaDb/Execution/CommandValidator.cs
+index dd3cc2e..0fe4833 100644
+--- a/src/Warehouse.StockEngine.Infrastructure.MariaDb/Execution/CommandValidator.cs
++++ b/src/Warehouse.StockEngine.Infrastructure.MariaDb/Execution/CommandValidator.cs
+@@ -11,9 +11,6 @@ internal static class CommandValidator
+         foreach (var line in command.Lines)
+         {
+             Require(line.DocumentLineId, nameof(line.DocumentLineId));
+-            Require(line.WarehouseCode, nameof(line.WarehouseCode));
+-            Require(line.LocationCode, nameof(line.LocationCode));
+-            Require(line.ItemCode, nameof(line.ItemCode));
+             RequirePositive(line.Quantity, nameof(line.Quantity));
+         }
+     }
+@@ -24,9 +21,6 @@ internal static class CommandValidator
+         foreach (var line in command.Lines)
+         {
+             Require(line.DocumentLineId, nameof(line.DocumentLineId));
+-            Require(line.WarehouseCode, nameof(line.WarehouseCode));
+-            Require(line.LocationCode, nameof(line.LocationCode));
+-            Require(line.ItemCode, nameof(line.ItemCode));
+             RequirePositive(line.Quantity, nameof(line.Quantity));
+         }
+     }
+@@ -37,15 +31,11 @@ internal static class CommandValidator
+         foreach (var line in command.Lines)
+         {
+             Require(line.DocumentLineId, nameof(line.DocumentLineId));
+-            Require(line.WarehouseCode, nameof(line.WarehouseCode));
+-            Require(line.FromLocationCode, nameof(line.FromLocationCode));
+-            Require(line.ToLocationCode, nameof(line.ToLocationCode));
+-            Require(line.ItemCode, nameof(line.ItemCode));
+             RequirePositive(line.Quantity, nameof(line.Quantity));
+ 
+-            if (string.Equals(line.FromLocationCode, line.ToLocationCode, StringComparison.Ordinal))
++            if (line.FromZone == line.ToZone && line.FromBin == line.ToBin)
+             {
+-                throw new InvalidStockCommandException("From and to location must differ.");
++                throw new InvalidStockCommandException("From and to bin must differ.");
+             }
+         }
+     }
+@@ -56,9 +46,6 @@ internal static class CommandValidator
+         foreach (var line in command.Lines)
+         {
+             Require(line.DocumentLineId, nameof(line.DocumentLineId));
+-            Require(line.WarehouseCode, nameof(line.WarehouseCode));
+-            Require(line.LocationCode, nameof(line.LocationCode));
+-            Require(line.ItemCode, nameof(line.ItemCode));
+ 
+             if (line.CountedQuantity < 0)
+             {
+diff --git a/src/Warehouse.StockEngine.Infrastructure.MariaDb/Execution/MariaDbStockEngine.cs b/src/Warehouse.StockEngine.Infrastructure.MariaDb/Execution/MariaDbStockEngine.cs
+index 454a252..0d3f951 100644
+--- a/src/Warehouse.StockEngine.Infrastructure.MariaDb/Execution/MariaDbStockEngine.cs
++++ b/src/Warehouse.StockEngine.Infrastructure.MariaDb/Execution/MariaDbStockEngine.cs
+@@ -31,16 +31,17 @@ public sealed class MariaDbStockEngine : IStockEngine
+                 var historyRows = 0;
+                 foreach (var line in command.Lines)
+                 {
+-                    await EnsureRowAsync(conn, tx, line.WarehouseCode, line.LocationCode, line.ItemCode, cancellationToken);
+-                    var before = await LockQuantityAsync(conn, tx, line.WarehouseCode, line.LocationCode, line.ItemCode, cancellationToken);
++                    await EnsureRowAsync(conn, tx, line.Warehouse, line.Zone, line.Bin, line.Sku, cancellationToken);
++                    var before = await LockQuantityAsync(conn, tx, line.Warehouse, line.Zone, line.Bin, line.Sku, cancellationToken);
+                     await conn.ExecuteAsync(new CommandDefinition(
+                         InboundQueries.Apply,
+                         new
+                         {
+                             Quantity = line.Quantity,
+-                            line.WarehouseCode,
+-                            line.LocationCode,
+-                            line.ItemCode
++                            line.Warehouse,
++                            line.Zone,
++                            line.Bin,
++                            line.Sku
+                         },
+                         tx,
+                         cancellationToken: cancellationToken));
+@@ -50,7 +51,7 @@ public sealed class MariaDbStockEngine : IStockEngine
+                         conn, tx,
+                         command.TransactionId, command.DocumentNo, line.DocumentLineId,
+                         MovementType.Inbound,
+-                        line.WarehouseCode, line.LocationCode, line.ItemCode,
++                        line.Warehouse, line.Zone, line.Bin, line.Sku,
+                         line.Quantity, before, after,
+                         cancellationToken);
+                     historyRows++;
+@@ -73,17 +74,18 @@ public sealed class MariaDbStockEngine : IStockEngine
+                 var historyRows = 0;
+                 foreach (var line in command.Lines)
+                 {
+-                    await EnsureRowAsync(conn, tx, line.WarehouseCode, line.LocationCode, line.ItemCode, cancellationToken);
+-                    var before = await LockQuantityAsync(conn, tx, line.WarehouseCode, line.LocationCode, line.ItemCode, cancellationToken);
++                    await EnsureRowAsync(conn, tx, line.Warehouse, line.Zone, line.Bin, line.Sku, cancellationToken);
++                    var before = await LockQuantityAsync(conn, tx, line.Warehouse, line.Zone, line.Bin, line.Sku, cancellationToken);
+ 
+                     var affected = await conn.ExecuteAsync(new CommandDefinition(
+                         OutboundQueries.Apply,
+                         new
+                         {
+                             Quantity = line.Quantity,
+-                            line.WarehouseCode,
+-                            line.LocationCode,
+-                            line.ItemCode
++                            line.Warehouse,
++                            line.Zone,
++                            line.Bin,
++                            line.Sku
+                         },
+                         tx,
+                         cancellationToken: cancellationToken));
+@@ -91,7 +93,7 @@ public sealed class MariaDbStockEngine : IStockEngine
+                     if (affected == 0)
+                     {
+                         throw new InsufficientStockException(
+-                            line.WarehouseCode, line.LocationCode, line.ItemCode, line.Quantity, before);
++                            line.Warehouse, line.Zone, line.Bin, line.Sku, line.Quantity, before);
+                     }
+ 
+                     var after = before - line.Quantity;
+@@ -99,7 +101,7 @@ public sealed class MariaDbStockEngine : IStockEngine
+                         conn, tx,
+                         command.TransactionId, command.DocumentNo, line.DocumentLineId,
+                         MovementType.Outbound,
+-                        line.WarehouseCode, line.LocationCode, line.ItemCode,
++                        line.Warehouse, line.Zone, line.Bin, line.Sku,
+                         -line.Quantity, before, after,
+                         cancellationToken);
+                     historyRows++;
+@@ -122,34 +124,34 @@ public sealed class MariaDbStockEngine : IStockEngine
+                 var historyRows = 0;
+                 foreach (var line in command.Lines)
+                 {
+-                    // Deterministic lock order to reduce deadlocks.
+-                    var firstIsFrom = string.CompareOrdinal(line.FromLocationCode, line.ToLocationCode) <= 0;
+-                    if (firstIsFrom)
++                    var fromFirst = CompareLocation(line.Warehouse, line.FromZone, line.FromBin, line.Warehouse, line.ToZone, line.ToBin) <= 0;
++                    if (fromFirst)
+                     {
+-                        await EnsureRowAsync(conn, tx, line.WarehouseCode, line.FromLocationCode, line.ItemCode, cancellationToken);
+-                        await EnsureRowAsync(conn, tx, line.WarehouseCode, line.ToLocationCode, line.ItemCode, cancellationToken);
+-                        await LockQuantityAsync(conn, tx, line.WarehouseCode, line.FromLocationCode, line.ItemCode, cancellationToken);
+-                        await LockQuantityAsync(conn, tx, line.WarehouseCode, line.ToLocationCode, line.ItemCode, cancellationToken);
++                        await EnsureRowAsync(conn, tx, line.Warehouse, line.FromZone, line.FromBin, line.Sku, cancellationToken);
++                        await EnsureRowAsync(conn, tx, line.Warehouse, line.ToZone, line.ToBin, line.Sku, cancellationToken);
++                        await LockQuantityAsync(conn, tx, line.Warehouse, line.FromZone, line.FromBin, line.Sku, cancellationToken);
++                        await LockQuantityAsync(conn, tx, line.Warehouse, line.ToZone, line.ToBin, line.Sku, cancellationToken);
+                     }
+                     else
+                     {
+-                        await EnsureRowAsync(conn, tx, line.WarehouseCode, line.ToLocationCode, line.ItemCode, cancellationToken);
+-                        await EnsureRowAsync(conn, tx, line.WarehouseCode, line.FromLocationCode, line.ItemCode, cancellationToken);
+-                        await LockQuantityAsync(conn, tx, line.WarehouseCode, line.ToLocationCode, line.ItemCode, cancellationToken);
+-                        await LockQuantityAsync(conn, tx, line.WarehouseCode, line.FromLocationCode, line.ItemCode, cancellationToken);
++                        await EnsureRowAsync(conn, tx, line.Warehouse, line.ToZone, line.ToBin, line.Sku, cancellationToken);
++                        await EnsureRowAsync(conn, tx, line.Warehouse, line.FromZone, line.FromBin, line.Sku, cancellationToken);
++                        await LockQuantityAsync(conn, tx, line.Warehouse, line.ToZone, line.ToBin, line.Sku, cancellationToken);
++                        await LockQuantityAsync(conn, tx, line.Warehouse, line.FromZone, line.FromBin, line.Sku, cancellationToken);
+                     }
+ 
+-                    var fromBefore = await GetLockedQuantityAsync(conn, tx, line.WarehouseCode, line.FromLocationCode, line.ItemCode, cancellationToken);
+-                    var toBefore = await GetLockedQuantityAsync(conn, tx, line.WarehouseCode, line.ToLocationCode, line.ItemCode, cancellationToken);
++                    var fromBefore = await GetLockedQuantityAsync(conn, tx, line.Warehouse, line.FromZone, line.FromBin, line.Sku, cancellationToken);
++                    var toBefore = await GetLockedQuantityAsync(conn, tx, line.Warehouse, line.ToZone, line.ToBin, line.Sku, cancellationToken);
+ 
+                     var affected = await conn.ExecuteAsync(new CommandDefinition(
+                         MoveQueries.DecreaseSource,
+                         new
+                         {
+                             Quantity = line.Quantity,
+-                            line.WarehouseCode,
+-                            LocationCode = line.FromLocationCode,
+-                            line.ItemCode
++                            line.Warehouse,
++                            Zone = line.FromZone,
++                            Bin = line.FromBin,
++                            line.Sku
+                         },
+                         tx,
+                         cancellationToken: cancellationToken));
+@@ -157,7 +159,7 @@ public sealed class MariaDbStockEngine : IStockEngine
+                     if (affected == 0)
+                     {
+                         throw new InsufficientStockException(
+-                            line.WarehouseCode, line.FromLocationCode, line.ItemCode, line.Quantity, fromBefore);
++                            line.Warehouse, line.FromZone, line.FromBin, line.Sku, line.Quantity, fromBefore);
+                     }
+ 
+                     await conn.ExecuteAsync(new CommandDefinition(
+@@ -165,9 +167,10 @@ public sealed class MariaDbStockEngine : IStockEngine
+                         new
+                         {
+                             Quantity = line.Quantity,
+-                            line.WarehouseCode,
+-                            LocationCode = line.ToLocationCode,
+-                            line.ItemCode
++                            line.Warehouse,
++                            Zone = line.ToZone,
++                            Bin = line.ToBin,
++                            line.Sku
+                         },
+                         tx,
+                         cancellationToken: cancellationToken));
+@@ -179,7 +182,7 @@ public sealed class MariaDbStockEngine : IStockEngine
+                         conn, tx,
+                         command.TransactionId, command.DocumentNo, line.DocumentLineId,
+                         MovementType.Move,
+-                        line.WarehouseCode, line.FromLocationCode, line.ItemCode,
++                        line.Warehouse, line.FromZone, line.FromBin, line.Sku,
+                         -line.Quantity, fromBefore, fromAfter,
+                         cancellationToken);
+                     historyRows++;
+@@ -188,7 +191,7 @@ public sealed class MariaDbStockEngine : IStockEngine
+                         conn, tx,
+                         command.TransactionId, command.DocumentNo, line.DocumentLineId,
+                         MovementType.Move,
+-                        line.WarehouseCode, line.ToLocationCode, line.ItemCode,
++                        line.Warehouse, line.ToZone, line.ToBin, line.Sku,
+                         line.Quantity, toBefore, toAfter,
+                         cancellationToken);
+                     historyRows++;
+@@ -211,17 +214,18 @@ public sealed class MariaDbStockEngine : IStockEngine
+                 var historyRows = 0;
+                 foreach (var line in command.Lines)
+                 {
+-                    await EnsureRowAsync(conn, tx, line.WarehouseCode, line.LocationCode, line.ItemCode, cancellationToken);
+-                    var before = await LockQuantityAsync(conn, tx, line.WarehouseCode, line.LocationCode, line.ItemCode, cancellationToken);
++                    await EnsureRowAsync(conn, tx, line.Warehouse, line.Zone, line.Bin, line.Sku, cancellationToken);
++                    var before = await LockQuantityAsync(conn, tx, line.Warehouse, line.Zone, line.Bin, line.Sku, cancellationToken);
+ 
+                     await conn.ExecuteAsync(new CommandDefinition(
+                         CountQueries.Apply,
+                         new
+                         {
+                             Quantity = line.CountedQuantity,
+-                            line.WarehouseCode,
+-                            line.LocationCode,
+-                            line.ItemCode
++                            line.Warehouse,
++                            line.Zone,
++                            line.Bin,
++                            line.Sku
+                         },
+                         tx,
+                         cancellationToken: cancellationToken));
+@@ -232,7 +236,7 @@ public sealed class MariaDbStockEngine : IStockEngine
+                         conn, tx,
+                         command.TransactionId, command.DocumentNo, line.DocumentLineId,
+                         MovementType.Count,
+-                        line.WarehouseCode, line.LocationCode, line.ItemCode,
++                        line.Warehouse, line.Zone, line.Bin, line.Sku,
+                         delta, before, after,
+                         cancellationToken);
+                     historyRows++;
+@@ -244,9 +248,10 @@ public sealed class MariaDbStockEngine : IStockEngine
+     }
+ 
+     public async Task<decimal> GetQuantityAsync(
+-        string warehouseCode,
+-        string locationCode,
+-        string itemCode,
++        int warehouse,
++        int zone,
++        int bin,
++        long sku,
+         CancellationToken cancellationToken = default)
+     {
+         await using var connection = _connectionFactory.CreateConnection();
+@@ -254,7 +259,7 @@ public sealed class MariaDbStockEngine : IStockEngine
+ 
+         var quantity = await connection.QuerySingleOrDefaultAsync<decimal?>(new CommandDefinition(
+             StockQueries.GetQuantity,
+-            new { WarehouseCode = warehouseCode, LocationCode = locationCode, ItemCode = itemCode },
++            new { Warehouse = warehouse, Zone = zone, Bin = bin, Sku = sku },
+             cancellationToken: cancellationToken));
+ 
+         return quantity ?? 0m;
+@@ -340,14 +345,15 @@ public sealed class MariaDbStockEngine : IStockEngine
+     private static async Task EnsureRowAsync(
+         DbConnection connection,
+         DbTransaction transaction,
+-        string warehouseCode,
+-        string locationCode,
+-        string itemCode,
++        int warehouse,
++        int zone,
++        int bin,
++        long sku,
+         CancellationToken cancellationToken)
+     {
+         await connection.ExecuteAsync(new CommandDefinition(
+             StockQueries.EnsureInventoryRow,
+-            new { WarehouseCode = warehouseCode, LocationCode = locationCode, ItemCode = itemCode },
++            new { Warehouse = warehouse, Zone = zone, Bin = bin, Sku = sku },
+             transaction,
+             cancellationToken: cancellationToken));
+     }
+@@ -355,28 +361,40 @@ public sealed class MariaDbStockEngine : IStockEngine
+     private static async Task<decimal> LockQuantityAsync(
+         DbConnection connection,
+         DbTransaction transaction,
+-        string warehouseCode,
+-        string locationCode,
+-        string itemCode,
++        int warehouse,
++        int zone,
++        int bin,
++        long sku,
+         CancellationToken cancellationToken)
+     {
+-        var quantity = await connection.QuerySingleAsync<decimal>(new CommandDefinition(
++        return await connection.QuerySingleAsync<decimal>(new CommandDefinition(
+             StockQueries.LockQuantity,
+-            new { WarehouseCode = warehouseCode, LocationCode = locationCode, ItemCode = itemCode },
++            new { Warehouse = warehouse, Zone = zone, Bin = bin, Sku = sku },
+             transaction,
+             cancellationToken: cancellationToken));
+-
+-        return quantity;
+     }
+ 
+     private static Task<decimal> GetLockedQuantityAsync(
+         DbConnection connection,
+         DbTransaction transaction,
+-        string warehouseCode,
+-        string locationCode,
+-        string itemCode,
++        int warehouse,
++        int zone,
++        int bin,
++        long sku,
+         CancellationToken cancellationToken)
+-        => LockQuantityAsync(connection, transaction, warehouseCode, locationCode, itemCode, cancellationToken);
++        => LockQuantityAsync(connection, transaction, warehouse, zone, bin, sku, cancellationToken);
++
++    private static int CompareLocation(int warehouseA, int zoneA, int binA, int warehouseB, int zoneB, int binB)
++    {
++        var warehouseCmp = warehouseA.CompareTo(warehouseB);
++        if (warehouseCmp != 0)
++        {
++            return warehouseCmp;
++        }
++
++        var zoneCmp = zoneA.CompareTo(zoneB);
++        return zoneCmp != 0 ? zoneCmp : binA.CompareTo(binB);
++    }
+ 
+     private static Task InsertHistoryAsync(
+         DbConnection connection,
+@@ -385,9 +403,10 @@ public sealed class MariaDbStockEngine : IStockEngine
+         string documentNo,
+         string documentLineId,
+         MovementType movementType,
+-        string warehouseCode,
+-        string locationCode,
+-        string itemCode,
++        int warehouse,
++        int zone,
++        int bin,
++        long sku,
+         decimal quantityDelta,
+         decimal quantityBefore,
+         decimal quantityAfter,
+@@ -401,9 +420,10 @@ public sealed class MariaDbStockEngine : IStockEngine
+                 DocumentNo = documentNo,
+                 DocumentLineId = documentLineId,
+                 MovementType = movementType.ToString(),
+-                WarehouseCode = warehouseCode,
+-                LocationCode = locationCode,
+-                ItemCode = itemCode,
++                Warehouse = warehouse,
++                Zone = zone,
++                Bin = bin,
++                Sku = sku,
+                 QuantityDelta = quantityDelta,
+                 QuantityBefore = quantityBefore,
+                 QuantityAfter = quantityAfter
+diff --git a/src/Warehouse.StockEngine.Infrastructure.MariaDb/Execution/RequestHasher.cs b/src/Warehouse.StockEngine.Infrastructure.MariaDb/Execution/RequestHasher.cs
+index 282b9b6..07942d3 100644
+--- a/src/Warehouse.StockEngine.Infrastructure.MariaDb/Execution/RequestHasher.cs
++++ b/src/Warehouse.StockEngine.Infrastructure.MariaDb/Execution/RequestHasher.cs
+@@ -15,9 +15,10 @@ internal static class RequestHasher
+         {
+             sb.Append('|')
+               .Append(line.DocumentLineId).Append(';')
+-              .Append(line.WarehouseCode).Append(';')
+-              .Append(line.LocationCode).Append(';')
+-              .Append(line.ItemCode).Append(';')
++              .Append(line.Warehouse).Append(';')
++              .Append(line.Zone).Append(';')
++              .Append(line.Bin).Append(';')
++              .Append(line.Sku).Append(';')
+               .Append(line.Quantity.ToString(CultureInfo.InvariantCulture));
+         }
+ 
+@@ -32,9 +33,10 @@ internal static class RequestHasher
+         {
+             sb.Append('|')
+               .Append(line.DocumentLineId).Append(';')
+-              .Append(line.WarehouseCode).Append(';')
+-              .Append(line.LocationCode).Append(';')
+-              .Append(line.ItemCode).Append(';')
++              .Append(line.Warehouse).Append(';')
++              .Append(line.Zone).Append(';')
++              .Append(line.Bin).Append(';')
++              .Append(line.Sku).Append(';')
+               .Append(line.Quantity.ToString(CultureInfo.InvariantCulture));
+         }
+ 
+@@ -49,10 +51,12 @@ internal static class RequestHasher
+         {
+             sb.Append('|')
+               .Append(line.DocumentLineId).Append(';')
+-              .Append(line.WarehouseCode).Append(';')
+-              .Append(line.FromLocationCode).Append(';')
+-              .Append(line.ToLocationCode).Append(';')
+-              .Append(line.ItemCode).Append(';')
++              .Append(line.Warehouse).Append(';')
++              .Append(line.FromZone).Append(';')
++              .Append(line.FromBin).Append(';')
++              .Append(line.ToZone).Append(';')
++              .Append(line.ToBin).Append(';')
++              .Append(line.Sku).Append(';')
+               .Append(line.Quantity.ToString(CultureInfo.InvariantCulture));
+         }
+ 
+@@ -67,9 +71,10 @@ internal static class RequestHasher
+         {
+             sb.Append('|')
+               .Append(line.DocumentLineId).Append(';')
+-              .Append(line.WarehouseCode).Append(';')
+-              .Append(line.LocationCode).Append(';')
+-              .Append(line.ItemCode).Append(';')
++              .Append(line.Warehouse).Append(';')
++              .Append(line.Zone).Append(';')
++              .Append(line.Bin).Append(';')
++              .Append(line.Sku).Append(';')
+               .Append(line.CountedQuantity.ToString(CultureInfo.InvariantCulture));
+         }
+ 
+diff --git a/src/Warehouse.StockEngine.Infrastructure.MariaDb/Sql/StockQueries.cs b/src/Warehouse.StockEngine.Infrastructure.MariaDb/Sql/StockQueries.cs
+index b4c493e..34c4923 100644
+--- a/src/Warehouse.StockEngine.Infrastructure.MariaDb/Sql/StockQueries.cs
++++ b/src/Warehouse.StockEngine.Infrastructure.MariaDb/Sql/StockQueries.cs
+@@ -22,53 +22,57 @@ internal static class StockQueries
+     public const string InsertHistory = """
+         INSERT INTO inventory_history (
+             transaction_id, document_no, document_line_id, movement_type,
+-            warehouse_code, location_code, item_code,
++            warehouse, zone, bin, sku,
+             quantity_delta, quantity_before, quantity_after, created_at)
+         VALUES (
+             @TransactionId, @DocumentNo, @DocumentLineId, @MovementType,
+-            @WarehouseCode, @LocationCode, @ItemCode,
++            @Warehouse, @Zone, @Bin, @Sku,
+             @QuantityDelta, @QuantityBefore, @QuantityAfter, UTC_TIMESTAMP(6));
+         """;
+ 
+     public const string GetQuantity = """
+         SELECT quantity
+         FROM inventory
+-        WHERE warehouse_code = @WarehouseCode
+-          AND location_code = @LocationCode
+-          AND item_code = @ItemCode;
++        WHERE warehouse = @Warehouse
++          AND zone = @Zone
++          AND bin = @Bin
++          AND sku = @Sku;
+         """;
+ 
+     public const string LockQuantity = """
+         SELECT quantity
+         FROM inventory
+-        WHERE warehouse_code = @WarehouseCode
+-          AND location_code = @LocationCode
+-          AND item_code = @ItemCode
++        WHERE warehouse = @Warehouse
++          AND zone = @Zone
++          AND bin = @Bin
++          AND sku = @Sku
+         FOR UPDATE;
+         """;
+ 
+     public const string EnsureInventoryRow = """
+-        INSERT INTO inventory (warehouse_code, location_code, item_code, quantity, updated_at)
+-        VALUES (@WarehouseCode, @LocationCode, @ItemCode, 0, UTC_TIMESTAMP(6))
+-        ON DUPLICATE KEY UPDATE warehouse_code = warehouse_code;
++        INSERT INTO inventory (warehouse, zone, bin, sku, quantity, updated_at)
++        VALUES (@Warehouse, @Zone, @Bin, @Sku, 0, UTC_TIMESTAMP(6))
++        ON DUPLICATE KEY UPDATE warehouse = warehouse;
+         """;
+ 
+     public const string IncreaseQuantity = """
+         UPDATE inventory
+         SET quantity = quantity + @Quantity,
+             updated_at = UTC_TIMESTAMP(6)
+-        WHERE warehouse_code = @WarehouseCode
+-          AND location_code = @LocationCode
+-          AND item_code = @ItemCode;
++        WHERE warehouse = @Warehouse
++          AND zone = @Zone
++          AND bin = @Bin
++          AND sku = @Sku;
+         """;
+ 
+     public const string DecreaseQuantityIfSufficient = """
+         UPDATE inventory
+         SET quantity = quantity - @Quantity,
+             updated_at = UTC_TIMESTAMP(6)
+-        WHERE warehouse_code = @WarehouseCode
+-          AND location_code = @LocationCode
+-          AND item_code = @ItemCode
++        WHERE warehouse = @Warehouse
++          AND zone = @Zone
++          AND bin = @Bin
++          AND sku = @Sku
+           AND quantity >= @Quantity;
+         """;
+ 
+@@ -76,8 +80,9 @@ internal static class StockQueries
+         UPDATE inventory
+         SET quantity = @Quantity,
+             updated_at = UTC_TIMESTAMP(6)
+-        WHERE warehouse_code = @WarehouseCode
+-          AND location_code = @LocationCode
+-          AND item_code = @ItemCode;
++        WHERE warehouse = @Warehouse
++          AND zone = @Zone
++          AND bin = @Bin
++          AND sku = @Sku;
+         """;
+ }
+diff --git a/tests/Warehouse.StockEngine.Tests/Integration/CountTests.cs b/tests/Warehouse.StockEngine.Tests/Integration/CountTests.cs
+index 9b64c59..8e08ca1 100644
+--- a/tests/Warehouse.StockEngine.Tests/Integration/CountTests.cs
++++ b/tests/Warehouse.StockEngine.Tests/Integration/CountTests.cs
+@@ -13,36 +13,38 @@ public sealed class CountTests
+     [Fact]
+     public async Task Count_SetsAbsoluteQuantity()
+     {
+-        var item = $"SKU-CNT-{Guid.NewGuid():N}"[..20];
++        var sku = UniqueSku();
+         await _fixture.Engine.InboundAsync(new InboundStockCommand(
+             Guid.NewGuid(),
+             "IN-CNT-SETUP",
+-            [new InboundStockLine("1", "WH1", "D-01", item, 10m)]));
++            [new InboundStockLine("1", 1, 40, 400, sku, 10m)]));
+ 
+         var result = await _fixture.Engine.CountAsync(new CountStockCommand(
+             Guid.NewGuid(),
+             "CNT-001",
+-            [new CountStockLine("1", "WH1", "D-01", item, 6m)]));
++            [new CountStockLine("1", 1, 40, 400, sku, 6m)]));
+ 
+         Assert.False(result.WasAlreadyProcessed);
+         Assert.Equal(1, result.HistoryRowsWritten);
+-        Assert.Equal(6m, await _fixture.Engine.GetQuantityAsync("WH1", "D-01", item));
++        Assert.Equal(6m, await _fixture.Engine.GetQuantityAsync(1, 40, 400, sku));
+     }
+ 
+     [Fact]
+     public async Task Count_CanIncreaseAboveCurrent()
+     {
+-        var item = $"SKU-CNT2-{Guid.NewGuid():N}"[..20];
++        var sku = UniqueSku();
+         await _fixture.Engine.InboundAsync(new InboundStockCommand(
+             Guid.NewGuid(),
+             "IN-CNT2-SETUP",
+-            [new InboundStockLine("1", "WH1", "D-02", item, 1m)]));
++            [new InboundStockLine("1", 1, 40, 401, sku, 1m)]));
+ 
+         await _fixture.Engine.CountAsync(new CountStockCommand(
+             Guid.NewGuid(),
+             "CNT-002",
+-            [new CountStockLine("1", "WH1", "D-02", item, 25m)]));
++            [new CountStockLine("1", 1, 40, 401, sku, 25m)]));
+ 
+-        Assert.Equal(25m, await _fixture.Engine.GetQuantityAsync("WH1", "D-02", item));
++        Assert.Equal(25m, await _fixture.Engine.GetQuantityAsync(1, 40, 401, sku));
+     }
++
++    private static long UniqueSku() => Random.Shared.NextInt64(1_000_000, 9_000_000_000);
+ }
+diff --git a/tests/Warehouse.StockEngine.Tests/Integration/IdempotencyTests.cs b/tests/Warehouse.StockEngine.Tests/Integration/IdempotencyTests.cs
+index d601f01..af6da22 100644
+--- a/tests/Warehouse.StockEngine.Tests/Integration/IdempotencyTests.cs
++++ b/tests/Warehouse.StockEngine.Tests/Integration/IdempotencyTests.cs
+@@ -15,11 +15,11 @@ public sealed class IdempotencyTests
+     public async Task SameTransactionId_SamePayload_IsIdempotent()
+     {
+         var transactionId = Guid.NewGuid();
+-        var item = $"SKU-IDEM-{Guid.NewGuid():N}"[..20];
++        var sku = UniqueSku();
+         var command = new InboundStockCommand(
+             transactionId,
+             "IDEM-001",
+-            [new InboundStockLine("1", "WH1", "E-01", item, 9m)]);
++            [new InboundStockLine("1", 1, 50, 500, sku, 9m)]);
+ 
+         var first = await _fixture.Engine.InboundAsync(command);
+         var second = await _fixture.Engine.InboundAsync(command);
+@@ -27,26 +27,28 @@ public sealed class IdempotencyTests
+         Assert.False(first.WasAlreadyProcessed);
+         Assert.True(second.WasAlreadyProcessed);
+         Assert.Equal(first.HistoryRowsWritten, second.HistoryRowsWritten);
+-        Assert.Equal(9m, await _fixture.Engine.GetQuantityAsync("WH1", "E-01", item));
++        Assert.Equal(9m, await _fixture.Engine.GetQuantityAsync(1, 50, 500, sku));
+     }
+ 
+     [Fact]
+     public async Task SameTransactionId_DifferentPayload_Throws()
+     {
+         var transactionId = Guid.NewGuid();
+-        var item = $"SKU-CONF-{Guid.NewGuid():N}"[..20];
++        var sku = UniqueSku();
+ 
+         await _fixture.Engine.InboundAsync(new InboundStockCommand(
+             transactionId,
+             "CONF-001",
+-            [new InboundStockLine("1", "WH1", "E-02", item, 4m)]));
++            [new InboundStockLine("1", 1, 50, 501, sku, 4m)]));
+ 
+         await Assert.ThrowsAsync<IdempotencyConflictException>(() =>
+             _fixture.Engine.InboundAsync(new InboundStockCommand(
+                 transactionId,
+                 "CONF-001",
+-                [new InboundStockLine("1", "WH1", "E-02", item, 8m)])));
++                [new InboundStockLine("1", 1, 50, 501, sku, 8m)])));
+ 
+-        Assert.Equal(4m, await _fixture.Engine.GetQuantityAsync("WH1", "E-02", item));
++        Assert.Equal(4m, await _fixture.Engine.GetQuantityAsync(1, 50, 501, sku));
+     }
++
++    private static long UniqueSku() => Random.Shared.NextInt64(1_000_000, 9_000_000_000);
+ }
+diff --git a/tests/Warehouse.StockEngine.Tests/Integration/InboundTests.cs b/tests/Warehouse.StockEngine.Tests/Integration/InboundTests.cs
+index ed5e7ae..585326e 100644
+--- a/tests/Warehouse.StockEngine.Tests/Integration/InboundTests.cs
++++ b/tests/Warehouse.StockEngine.Tests/Integration/InboundTests.cs
+@@ -15,17 +15,18 @@ public sealed class InboundTests
+     public async Task Inbound_IncreasesQuantity_AndWritesHistory()
+     {
+         var transactionId = Guid.NewGuid();
++        var sku = UniqueSku();
+         var result = await _fixture.Engine.InboundAsync(new InboundStockCommand(
+             transactionId,
+             "IN-001",
+             [
+-                new InboundStockLine("1", "WH1", "A-01", "SKU-IN", 10m),
+-                new InboundStockLine("2", "WH1", "A-01", "SKU-IN", 5m)
++                new InboundStockLine("1", 1, 10, 100, sku, 10m),
++                new InboundStockLine("2", 1, 10, 100, sku, 5m)
+             ]));
+ 
+         Assert.False(result.WasAlreadyProcessed);
+         Assert.Equal(2, result.HistoryRowsWritten);
+-        Assert.Equal(15m, await _fixture.Engine.GetQuantityAsync("WH1", "A-01", "SKU-IN"));
++        Assert.Equal(15m, await _fixture.Engine.GetQuantityAsync(1, 10, 100, sku));
+     }
+ 
+     [Fact]
+@@ -35,6 +36,8 @@ public sealed class InboundTests
+             _fixture.Engine.InboundAsync(new InboundStockCommand(
+                 Guid.NewGuid(),
+                 "IN-BAD",
+-                [new InboundStockLine("1", "WH1", "A-01", "SKU-IN", 0m)])));
++                [new InboundStockLine("1", 1, 10, 100, UniqueSku(), 0m)])));
+     }
++
++    private static long UniqueSku() => Random.Shared.NextInt64(1_000_000, 9_000_000_000);
+ }
+diff --git a/tests/Warehouse.StockEngine.Tests/Integration/MoveTests.cs b/tests/Warehouse.StockEngine.Tests/Integration/MoveTests.cs
+index 40fc58d..1e439d3 100644
+--- a/tests/Warehouse.StockEngine.Tests/Integration/MoveTests.cs
++++ b/tests/Warehouse.StockEngine.Tests/Integration/MoveTests.cs
+@@ -15,22 +15,22 @@ public sealed class MoveTests
+     [Fact]
+     public async Task Move_TransfersQuantity_AndWritesTwoHistoryRowsPerLine()
+     {
+-        var item = $"SKU-MV-{Guid.NewGuid():N}"[..20];
++        var sku = UniqueSku();
+         await _fixture.Engine.InboundAsync(new InboundStockCommand(
+             Guid.NewGuid(),
+             "IN-MV-SETUP",
+-            [new InboundStockLine("1", "WH1", "C-01", item, 12m)]));
++            [new InboundStockLine("1", 1, 30, 300, sku, 12m)]));
+ 
+         var transactionId = Guid.NewGuid();
+         var result = await _fixture.Engine.MoveAsync(new MoveStockCommand(
+             transactionId,
+             "MV-001",
+-            [new MoveStockLine("1", "WH1", "C-01", "C-02", item, 4m)]));
++            [new MoveStockLine("1", 1, 30, 300, 30, 301, sku, 4m)]));
+ 
+         Assert.False(result.WasAlreadyProcessed);
+         Assert.Equal(2, result.HistoryRowsWritten);
+-        Assert.Equal(8m, await _fixture.Engine.GetQuantityAsync("WH1", "C-01", item));
+-        Assert.Equal(4m, await _fixture.Engine.GetQuantityAsync("WH1", "C-02", item));
++        Assert.Equal(8m, await _fixture.Engine.GetQuantityAsync(1, 30, 300, sku));
++        Assert.Equal(4m, await _fixture.Engine.GetQuantityAsync(1, 30, 301, sku));
+ 
+         await using var connection = _fixture.ConnectionFactory.CreateConnection();
+         await connection.OpenAsync();
+@@ -43,19 +43,21 @@ public sealed class MoveTests
+     [Fact]
+     public async Task Move_RejectsInsufficientSourceStock()
+     {
+-        var item = $"SKU-MV-NEG-{Guid.NewGuid():N}"[..24];
++        var sku = UniqueSku();
+         await _fixture.Engine.InboundAsync(new InboundStockCommand(
+             Guid.NewGuid(),
+             "IN-MV-NEG",
+-            [new InboundStockLine("1", "WH1", "C-03", item, 2m)]));
++            [new InboundStockLine("1", 1, 30, 302, sku, 2m)]));
+ 
+         await Assert.ThrowsAsync<InsufficientStockException>(() =>
+             _fixture.Engine.MoveAsync(new MoveStockCommand(
+                 Guid.NewGuid(),
+                 "MV-NEG",
+-                [new MoveStockLine("1", "WH1", "C-03", "C-04", item, 10m)])));
++                [new MoveStockLine("1", 1, 30, 302, 30, 303, sku, 10m)])));
+ 
+-        Assert.Equal(2m, await _fixture.Engine.GetQuantityAsync("WH1", "C-03", item));
+-        Assert.Equal(0m, await _fixture.Engine.GetQuantityAsync("WH1", "C-04", item));
++        Assert.Equal(2m, await _fixture.Engine.GetQuantityAsync(1, 30, 302, sku));
++        Assert.Equal(0m, await _fixture.Engine.GetQuantityAsync(1, 30, 303, sku));
+     }
++
++    private static long UniqueSku() => Random.Shared.NextInt64(1_000_000, 9_000_000_000);
+ }
+diff --git a/tests/Warehouse.StockEngine.Tests/Integration/OutboundTests.cs b/tests/Warehouse.StockEngine.Tests/Integration/OutboundTests.cs
+index 36aeef8..8f18296 100644
+--- a/tests/Warehouse.StockEngine.Tests/Integration/OutboundTests.cs
++++ b/tests/Warehouse.StockEngine.Tests/Integration/OutboundTests.cs
+@@ -14,37 +14,39 @@ public sealed class OutboundTests
+     [Fact]
+     public async Task Outbound_DecreasesQuantity()
+     {
+-        var item = $"SKU-OUT-{Guid.NewGuid():N}"[..20];
++        var sku = UniqueSku();
+         await _fixture.Engine.InboundAsync(new InboundStockCommand(
+             Guid.NewGuid(),
+             "IN-OUT-SETUP",
+-            [new InboundStockLine("1", "WH1", "B-01", item, 20m)]));
++            [new InboundStockLine("1", 1, 20, 200, sku, 20m)]));
+ 
+         var result = await _fixture.Engine.OutboundAsync(new OutboundStockCommand(
+             Guid.NewGuid(),
+             "OUT-001",
+-            [new OutboundStockLine("1", "WH1", "B-01", item, 7m)]));
++            [new OutboundStockLine("1", 1, 20, 200, sku, 7m)]));
+ 
+         Assert.False(result.WasAlreadyProcessed);
+         Assert.Equal(1, result.HistoryRowsWritten);
+-        Assert.Equal(13m, await _fixture.Engine.GetQuantityAsync("WH1", "B-01", item));
++        Assert.Equal(13m, await _fixture.Engine.GetQuantityAsync(1, 20, 200, sku));
+     }
+ 
+     [Fact]
+     public async Task Outbound_RejectsNegativeStock()
+     {
+-        var item = $"SKU-OUT-NEG-{Guid.NewGuid():N}"[..24];
++        var sku = UniqueSku();
+         await _fixture.Engine.InboundAsync(new InboundStockCommand(
+             Guid.NewGuid(),
+             "IN-OUT-NEG",
+-            [new InboundStockLine("1", "WH1", "B-02", item, 3m)]));
++            [new InboundStockLine("1", 1, 20, 201, sku, 3m)]));
+ 
+         await Assert.ThrowsAsync<InsufficientStockException>(() =>
+             _fixture.Engine.OutboundAsync(new OutboundStockCommand(
+                 Guid.NewGuid(),
+                 "OUT-NEG",
+-                [new OutboundStockLine("1", "WH1", "B-02", item, 5m)])));
++                [new OutboundStockLine("1", 1, 20, 201, sku, 5m)])));
+ 
+-        Assert.Equal(3m, await _fixture.Engine.GetQuantityAsync("WH1", "B-02", item));
++        Assert.Equal(3m, await _fixture.Engine.GetQuantityAsync(1, 20, 201, sku));
+     }
++
++    private static long UniqueSku() => Random.Shared.NextInt64(1_000_000, 9_000_000_000);
+ }
+diff --git a/tests/Warehouse.StockEngine.Tests/Performance/StockEngineLoadTests.cs b/tests/Warehouse.StockEngine.Tests/Performance/StockEngineLoadTests.cs
+index d0a7461..0815b40 100644
+--- a/tests/Warehouse.StockEngine.Tests/Performance/StockEngineLoadTests.cs
++++ b/tests/Warehouse.StockEngine.Tests/Performance/StockEngineLoadTests.cs
+@@ -14,26 +14,18 @@ public sealed class StockEngineLoadTests
+     [Fact]
+     public async Task Inbound_Load_CompletesWithoutErrors()
+     {
+-        // Seed a dedicated item/location so load traffic does not collide with integration fixtures.
+-        var item = $"SKU-LOAD-{Guid.NewGuid():N}"[..20];
++        var sku = Random.Shared.NextInt64(1_000_000, 9_000_000_000);
+         await _fixture.Engine.InboundAsync(new InboundStockCommand(
+             Guid.NewGuid(),
+             "LOAD-SEED",
+-            [new InboundStockLine("1", "WH1", "L-01", item, 1m)]));
++            [new InboundStockLine("1", 1, 90, 900, sku, 1m)]));
+ 
+         var scenario = Scenario.Create("inbound_load", async context =>
+             {
+                 var command = new InboundStockCommand(
+                     Guid.NewGuid(),
+                     $"LOAD-{context.InvocationNumber}",
+-                    [
+-                        new InboundStockLine(
+-                            "1",
+-                            "WH1",
+-                            "L-01",
+-                            item,
+-                            1m)
+-                    ]);
++                    [new InboundStockLine("1", 1, 90, 900, sku, 1m)]);
+ 
+                 await _fixture.Engine.InboundAsync(command);
+                 return Response.Ok();

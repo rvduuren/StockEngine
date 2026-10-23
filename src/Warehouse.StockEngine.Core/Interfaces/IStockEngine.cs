@@ -14,8 +14,9 @@ public interface IStockEngine
     Task<StockResult> CountAsync(CountStockCommand command, CancellationToken cancellationToken = default);
 
     Task<decimal> GetQuantityAsync(
-        string warehouseCode,
-        string locationCode,
-        string itemCode,
+        int warehouse,
+        int zone,
+        int bin,
+        long sku,
         CancellationToken cancellationToken = default);
 }

@@ -7,7 +7,8 @@ public sealed record InboundStockCommand(
 
 public sealed record InboundStockLine(
     string DocumentLineId,
-    string WarehouseCode,
-    string LocationCode,
-    string ItemCode,
+    int Warehouse,
+    int Zone,
+    int Bin,
+    long Sku,
     decimal Quantity);

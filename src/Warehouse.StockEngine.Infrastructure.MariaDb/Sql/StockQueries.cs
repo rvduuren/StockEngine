@@ -22,53 +22,57 @@ internal static class StockQueries
     public const string InsertHistory = """
         INSERT INTO inventory_history (
             transaction_id, document_no, document_line_id, movement_type,
-            warehouse_code, location_code, item_code,
+            warehouse, zone, bin, sku,
             quantity_delta, quantity_before, quantity_after, created_at)
         VALUES (
             @TransactionId, @DocumentNo, @DocumentLineId, @MovementType,
-            @WarehouseCode, @LocationCode, @ItemCode,
+            @Warehouse, @Zone, @Bin, @Sku,
             @QuantityDelta, @QuantityBefore, @QuantityAfter, UTC_TIMESTAMP(6));
         """;
 
     public const string GetQuantity = """
         SELECT quantity
         FROM inventory
-        WHERE warehouse_code = @WarehouseCode
-          AND location_code = @LocationCode
-          AND item_code = @ItemCode;
+        WHERE warehouse = @Warehouse
+          AND zone = @Zone
+          AND bin = @Bin
+          AND sku = @Sku;
         """;
 
     public const string LockQuantity = """
         SELECT quantity
         FROM inventory
-        WHERE warehouse_code = @WarehouseCode
-          AND location_code = @LocationCode
-          AND item_code = @ItemCode
+        WHERE warehouse = @Warehouse
+          AND zone = @Zone
+          AND bin = @Bin
+          AND sku = @Sku
         FOR UPDATE;
         """;
 
     public const string EnsureInventoryRow = """
-        INSERT INTO inventory (warehouse_code, location_code, item_code, quantity, updated_at)
-        VALUES (@WarehouseCode, @LocationCode, @ItemCode, 0, UTC_TIMESTAMP(6))
-        ON DUPLICATE KEY UPDATE warehouse_code = warehouse_code;
+        INSERT INTO inventory (warehouse, zone, bin, sku, quantity, updated_at)
+        VALUES (@Warehouse, @Zone, @Bin, @Sku, 0, UTC_TIMESTAMP(6))
+        ON DUPLICATE KEY UPDATE warehouse = warehouse;
         """;
 
     public const string IncreaseQuantity = """
         UPDATE inventory
         SET quantity = quantity + @Quantity,
             updated_at = UTC_TIMESTAMP(6)
-        WHERE warehouse_code = @WarehouseCode
-          AND location_code = @LocationCode
-          AND item_code = @ItemCode;
+        WHERE warehouse = @Warehouse
+          AND zone = @Zone
+          AND bin = @Bin
+          AND sku = @Sku;
         """;
 
     public const string DecreaseQuantityIfSufficient = """
         UPDATE inventory
         SET quantity = quantity - @Quantity,
             updated_at = UTC_TIMESTAMP(6)
-        WHERE warehouse_code = @WarehouseCode
-          AND location_code = @LocationCode
-          AND item_code = @ItemCode
+        WHERE warehouse = @Warehouse
+          AND zone = @Zone
+          AND bin = @Bin
+          AND sku = @Sku
           AND quantity >= @Quantity;
         """;
 
@@ -76,8 +80,9 @@ internal static class StockQueries
         UPDATE inventory
         SET quantity = @Quantity,
             updated_at = UTC_TIMESTAMP(6)
-        WHERE warehouse_code = @WarehouseCode
-          AND location_code = @LocationCode
-          AND item_code = @ItemCode;
+        WHERE warehouse = @Warehouse
+          AND zone = @Zone
+          AND bin = @Bin
+          AND sku = @Sku;
         """;
 }

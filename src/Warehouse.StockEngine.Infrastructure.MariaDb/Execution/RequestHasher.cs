@@ -15,9 +15,10 @@ internal static class RequestHasher
         {
             sb.Append('|')
               .Append(line.DocumentLineId).Append(';')
-              .Append(line.WarehouseCode).Append(';')
-              .Append(line.LocationCode).Append(';')
-              .Append(line.ItemCode).Append(';')
+              .Append(line.Warehouse).Append(';')
+              .Append(line.Zone).Append(';')
+              .Append(line.Bin).Append(';')
+              .Append(line.Sku).Append(';')
               .Append(line.Quantity.ToString(CultureInfo.InvariantCulture));
         }
 
@@ -32,9 +33,10 @@ internal static class RequestHasher
         {
             sb.Append('|')
               .Append(line.DocumentLineId).Append(';')
-              .Append(line.WarehouseCode).Append(';')
-              .Append(line.LocationCode).Append(';')
-              .Append(line.ItemCode).Append(';')
+              .Append(line.Warehouse).Append(';')
+              .Append(line.Zone).Append(';')
+              .Append(line.Bin).Append(';')
+              .Append(line.Sku).Append(';')
               .Append(line.Quantity.ToString(CultureInfo.InvariantCulture));
         }
 
@@ -49,10 +51,12 @@ internal static class RequestHasher
         {
             sb.Append('|')
               .Append(line.DocumentLineId).Append(';')
-              .Append(line.WarehouseCode).Append(';')
-              .Append(line.FromLocationCode).Append(';')
-              .Append(line.ToLocationCode).Append(';')
-              .Append(line.ItemCode).Append(';')
+              .Append(line.Warehouse).Append(';')
+              .Append(line.FromZone).Append(';')
+              .Append(line.FromBin).Append(';')
+              .Append(line.ToZone).Append(';')
+              .Append(line.ToBin).Append(';')
+              .Append(line.Sku).Append(';')
               .Append(line.Quantity.ToString(CultureInfo.InvariantCulture));
         }
 
@@ -67,9 +71,10 @@ internal static class RequestHasher
         {
             sb.Append('|')
               .Append(line.DocumentLineId).Append(';')
-              .Append(line.WarehouseCode).Append(';')
-              .Append(line.LocationCode).Append(';')
-              .Append(line.ItemCode).Append(';')
+              .Append(line.Warehouse).Append(';')
+              .Append(line.Zone).Append(';')
+              .Append(line.Bin).Append(';')
+              .Append(line.Sku).Append(';')
               .Append(line.CountedQuantity.ToString(CultureInfo.InvariantCulture));
         }
 

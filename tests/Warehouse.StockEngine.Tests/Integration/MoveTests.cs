@@ -15,22 +15,22 @@ public sealed class MoveTests
     [Fact]
     public async Task Move_TransfersQuantity_AndWritesTwoHistoryRowsPerLine()
     {
-        var item = $"SKU-MV-{Guid.NewGuid():N}"[..20];
+        var sku = UniqueSku();
         await _fixture.Engine.InboundAsync(new InboundStockCommand(
             Guid.NewGuid(),
             "IN-MV-SETUP",
-            [new InboundStockLine("1", "WH1", "C-01", item, 12m)]));
+            [new InboundStockLine("1", 1, 30, 300, sku, 12m)]));
 
         var transactionId = Guid.NewGuid();
         var result = await _fixture.Engine.MoveAsync(new MoveStockCommand(
             transactionId,
             "MV-001",
-            [new MoveStockLine("1", "WH1", "C-01", "C-02", item, 4m)]));
+            [new MoveStockLine("1", 1, 30, 300, 30, 301, sku, 4m)]));
 
         Assert.False(result.WasAlreadyProcessed);
         Assert.Equal(2, result.HistoryRowsWritten);
-        Assert.Equal(8m, await _fixture.Engine.GetQuantityAsync("WH1", "C-01", item));
-        Assert.Equal(4m, await _fixture.Engine.GetQuantityAsync("WH1", "C-02", item));
+        Assert.Equal(8m, await _fixture.Engine.GetQuantityAsync(1, 30, 300, sku));
+        Assert.Equal(4m, await _fixture.Engine.GetQuantityAsync(1, 30, 301, sku));
 
         await using var connection = _fixture.ConnectionFactory.CreateConnection();
         await connection.OpenAsync();
@@ -43,19 +43,21 @@ public sealed class MoveTests
     [Fact]
     public async Task Move_RejectsInsufficientSourceStock()
     {
-        var item = $"SKU-MV-NEG-{Guid.NewGuid():N}"[..24];
+        var sku = UniqueSku();
         await _fixture.Engine.InboundAsync(new InboundStockCommand(
             Guid.NewGuid(),
             "IN-MV-NEG",
-            [new InboundStockLine("1", "WH1", "C-03", item, 2m)]));
+            [new InboundStockLine("1", 1, 30, 302, sku, 2m)]));
 
         await Assert.ThrowsAsync<InsufficientStockException>(() =>
             _fixture.Engine.MoveAsync(new MoveStockCommand(
                 Guid.NewGuid(),
                 "MV-NEG",
-                [new MoveStockLine("1", "WH1", "C-03", "C-04", item, 10m)])));
+                [new MoveStockLine("1", 1, 30, 302, 30, 303, sku, 10m)])));
 
-        Assert.Equal(2m, await _fixture.Engine.GetQuantityAsync("WH1", "C-03", item));
-        Assert.Equal(0m, await _fixture.Engine.GetQuantityAsync("WH1", "C-04", item));
+        Assert.Equal(2m, await _fixture.Engine.GetQuantityAsync(1, 30, 302, sku));
+        Assert.Equal(0m, await _fixture.Engine.GetQuantityAsync(1, 30, 303, sku));
     }
+
+    private static long UniqueSku() => Random.Shared.NextInt64(1_000_000, 9_000_000_000);
 }

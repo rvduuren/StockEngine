@@ -7,7 +7,8 @@ public sealed record CountStockCommand(
 
 public sealed record CountStockLine(
     string DocumentLineId,
-    string WarehouseCode,
-    string LocationCode,
-    string ItemCode,
+    int Warehouse,
+    int Zone,
+    int Bin,
+    long Sku,
     decimal CountedQuantity);

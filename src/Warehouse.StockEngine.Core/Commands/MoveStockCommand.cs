@@ -7,8 +7,10 @@ public sealed record MoveStockCommand(
 
 public sealed record MoveStockLine(
     string DocumentLineId,
-    string WarehouseCode,
-    string FromLocationCode,
-    string ToLocationCode,
-    string ItemCode,
+    int Warehouse,
+    int FromZone,
+    int FromBin,
+    int ToZone,
+    int ToBin,
+    long Sku,
     decimal Quantity);

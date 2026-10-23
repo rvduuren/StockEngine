@@ -13,12 +13,13 @@ CREATE TABLE IF NOT EXISTS inventory_transaction (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS inventory (
-    warehouse_code  VARCHAR(50)    NOT NULL,
-    location_code   VARCHAR(50)    NOT NULL,
-    item_code       VARCHAR(50)    NOT NULL,
-    quantity        DECIMAL(18,4)  NOT NULL DEFAULT 0,
-    updated_at      DATETIME(6)    NOT NULL,
-    PRIMARY KEY (warehouse_code, location_code, item_code),
+    warehouse   INT            NOT NULL,
+    zone        INT            NOT NULL,
+    bin         INT            NOT NULL,
+    sku         BIGINT         NOT NULL,
+    quantity    DECIMAL(18,4)  NOT NULL DEFAULT 0,
+    updated_at  DATETIME(6)    NOT NULL,
+    PRIMARY KEY (warehouse, zone, bin, sku),
     CONSTRAINT chk_inventory_quantity_non_negative CHECK (quantity >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -28,9 +29,10 @@ CREATE TABLE IF NOT EXISTS inventory_history (
     document_no        VARCHAR(100)   NOT NULL,
     document_line_id   VARCHAR(100)   NOT NULL,
     movement_type      VARCHAR(20)    NOT NULL,
-    warehouse_code     VARCHAR(50)    NOT NULL,
-    location_code      VARCHAR(50)    NOT NULL,
-    item_code          VARCHAR(50)    NOT NULL,
+    warehouse          INT            NOT NULL,
+    zone               INT            NOT NULL,
+    bin                INT            NOT NULL,
+    sku                BIGINT         NOT NULL,
     quantity_delta     DECIMAL(18,4)  NOT NULL,
     quantity_before    DECIMAL(18,4)  NOT NULL,
     quantity_after     DECIMAL(18,4)  NOT NULL,

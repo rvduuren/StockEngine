@@ -14,26 +14,18 @@ public sealed class StockEngineLoadTests
     [Fact]
     public async Task Inbound_Load_CompletesWithoutErrors()
     {
-        // Seed a dedicated item/location so load traffic does not collide with integration fixtures.
-        var item = $"SKU-LOAD-{Guid.NewGuid():N}"[..20];
+        var sku = Random.Shared.NextInt64(1_000_000, 9_000_000_000);
         await _fixture.Engine.InboundAsync(new InboundStockCommand(
             Guid.NewGuid(),
             "LOAD-SEED",
-            [new InboundStockLine("1", "WH1", "L-01", item, 1m)]));
+            [new InboundStockLine("1", 1, 90, 900, sku, 1m)]));
 
         var scenario = Scenario.Create("inbound_load", async context =>
             {
                 var command = new InboundStockCommand(
                     Guid.NewGuid(),
                     $"LOAD-{context.InvocationNumber}",
-                    [
-                        new InboundStockLine(
-                            "1",
-                            "WH1",
-                            "L-01",
-                            item,
-                            1m)
-                    ]);
+                    [new InboundStockLine("1", 1, 90, 900, sku, 1m)]);
 
                 await _fixture.Engine.InboundAsync(command);
                 return Response.Ok();
