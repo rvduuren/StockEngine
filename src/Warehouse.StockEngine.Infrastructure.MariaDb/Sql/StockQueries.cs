@@ -3,8 +3,21 @@ namespace Warehouse.StockEngine.Infrastructure.MariaDb.Sql;
 internal static class StockQueries
 {
     public const string ClaimTransaction = """
-        INSERT INTO inventory_transaction (transaction_id, request_hash, movement_type, created_at)
-        VALUES (@TransactionId, @RequestHash, @MovementType, UTC_TIMESTAMP(6));
+        INSERT INTO inventory_transaction (
+            transaction_id, request_hash, movement_type, status,
+            source, user_id, device_id, reason_code,
+            created_at, completed_at)
+        VALUES (
+            @TransactionId, @RequestHash, @MovementType, 'COMPLETED',
+            @Source, @UserId, @DeviceId, @ReasonCode,
+            UTC_TIMESTAMP(6), NULL);
+        """;
+
+    public const string CompleteTransaction = """
+        UPDATE inventory_transaction
+        SET completed_at = UTC_TIMESTAMP(6),
+            status = 'COMPLETED'
+        WHERE transaction_id = @TransactionId;
         """;
 
     public const string GetTransactionHash = """
@@ -23,11 +36,13 @@ internal static class StockQueries
         INSERT INTO inventory_history (
             transaction_id, document_no, document_line_id, movement_type,
             warehouse, zone, bin, sku,
-            quantity_delta, quantity_before, quantity_after, created_at)
+            quantity_delta, quantity_before, quantity_after,
+            counted_quantity, reason_code, created_at)
         VALUES (
             @TransactionId, @DocumentNo, @DocumentLineId, @MovementType,
             @Warehouse, @Zone, @Bin, @Sku,
-            @QuantityDelta, @QuantityBefore, @QuantityAfter, UTC_TIMESTAMP(6));
+            @QuantityDelta, @QuantityBefore, @QuantityAfter,
+            @CountedQuantity, @ReasonCode, UTC_TIMESTAMP(6));
         """;
 
     public const string GetQuantity = """

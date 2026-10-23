@@ -1,3 +1,4 @@
+using Dapper;
 using Warehouse.StockEngine.Core.Commands;
 using Warehouse.StockEngine.Tests.Fixtures;
 
@@ -44,6 +45,60 @@ public sealed class CountTests
             [new CountStockLine("1", 1, 40, 401, sku, 25m)]));
 
         Assert.Equal(25m, await _fixture.Engine.GetQuantityAsync(1, 40, 401, sku));
+    }
+
+    [Fact]
+    public async Task Count_PersistsCountedQuantity_AndReasonCode()
+    {
+        var sku = UniqueSku();
+        var transactionId = Guid.NewGuid();
+
+        await _fixture.Engine.InboundAsync(new InboundStockCommand(
+            Guid.NewGuid(),
+            "IN-CNT-REASON",
+            [new InboundStockLine("1", 1, 40, 402, sku, 10m)],
+            Source: "RF",
+            UserId: "u-1"));
+
+        await _fixture.Engine.CountAsync(new CountStockCommand(
+            transactionId,
+            "CNT-REASON",
+            [new CountStockLine("1", 1, 40, 402, sku, 7m, ReasonCode: "CYCLE")],
+            Source: "RF",
+            UserId: "u-1",
+            DeviceId: "gun-9",
+            ReasonCode: "CYCLE-AUDIT"));
+
+        await using var connection = _fixture.ConnectionFactory.CreateConnection();
+        await connection.OpenAsync();
+
+        var history = await connection.QuerySingleAsync<(decimal? CountedQuantity, string? ReasonCode, decimal Delta)>(
+            """
+            SELECT counted_quantity AS CountedQuantity, reason_code AS ReasonCode, quantity_delta AS Delta
+            FROM inventory_history
+            WHERE transaction_id = @Id
+            """,
+            new { Id = transactionId.ToString() });
+
+        Assert.Equal(7m, history.CountedQuantity);
+        Assert.Equal("CYCLE", history.ReasonCode);
+        Assert.Equal(-3m, history.Delta);
+
+        var txn = await connection.QuerySingleAsync<(string Status, string? Source, string? UserId, string? DeviceId, string? ReasonCode, DateTime? CompletedAt)>(
+            """
+            SELECT status AS Status, source AS Source, user_id AS UserId, device_id AS DeviceId,
+                   reason_code AS ReasonCode, completed_at AS CompletedAt
+            FROM inventory_transaction
+            WHERE transaction_id = @Id
+            """,
+            new { Id = transactionId.ToString() });
+
+        Assert.Equal("COMPLETED", txn.Status);
+        Assert.Equal("RF", txn.Source);
+        Assert.Equal("u-1", txn.UserId);
+        Assert.Equal("gun-9", txn.DeviceId);
+        Assert.Equal("CYCLE-AUDIT", txn.ReasonCode);
+        Assert.NotNull(txn.CompletedAt);
     }
 
     private static long UniqueSku() => Random.Shared.NextInt64(1_000_000, 9_000_000_000);

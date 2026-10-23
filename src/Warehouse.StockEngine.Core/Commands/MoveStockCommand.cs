@@ -3,7 +3,11 @@ namespace Warehouse.StockEngine.Core.Commands;
 public sealed record MoveStockCommand(
     Guid TransactionId,
     string DocumentNo,
-    IReadOnlyList<MoveStockLine> Lines);
+    IReadOnlyList<MoveStockLine> Lines,
+    string? Source = null,
+    string? UserId = null,
+    string? DeviceId = null,
+    string? ReasonCode = null);
 
 public sealed record MoveStockLine(
     string DocumentLineId,
