@@ -1,0 +1,43 @@
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version     VARCHAR(50)  NOT NULL,
+    applied_at  DATETIME(6)  NOT NULL,
+    PRIMARY KEY (version)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS inventory_transaction (
+    transaction_id  CHAR(36)     NOT NULL,
+    request_hash    CHAR(64)     NOT NULL,
+    movement_type   VARCHAR(20)  NOT NULL,
+    created_at      DATETIME(6)  NOT NULL,
+    PRIMARY KEY (transaction_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS inventory (
+    warehouse_code  VARCHAR(50)    NOT NULL,
+    location_code   VARCHAR(50)    NOT NULL,
+    item_code       VARCHAR(50)    NOT NULL,
+    quantity        DECIMAL(18,4)  NOT NULL DEFAULT 0,
+    updated_at      DATETIME(6)    NOT NULL,
+    PRIMARY KEY (warehouse_code, location_code, item_code),
+    CONSTRAINT chk_inventory_quantity_non_negative CHECK (quantity >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS inventory_history (
+    history_id         BIGINT         NOT NULL AUTO_INCREMENT,
+    transaction_id     CHAR(36)       NOT NULL,
+    document_no        VARCHAR(100)   NOT NULL,
+    document_line_id   VARCHAR(100)   NOT NULL,
+    movement_type      VARCHAR(20)    NOT NULL,
+    warehouse_code     VARCHAR(50)    NOT NULL,
+    location_code      VARCHAR(50)    NOT NULL,
+    item_code          VARCHAR(50)    NOT NULL,
+    quantity_delta     DECIMAL(18,4)  NOT NULL,
+    quantity_before    DECIMAL(18,4)  NOT NULL,
+    quantity_after     DECIMAL(18,4)  NOT NULL,
+    created_at         DATETIME(6)    NOT NULL,
+    PRIMARY KEY (history_id),
+    KEY ix_inventory_history_transaction_id (transaction_id),
+    KEY ix_inventory_history_document (document_no, document_line_id),
+    CONSTRAINT fk_inventory_history_transaction
+        FOREIGN KEY (transaction_id) REFERENCES inventory_transaction (transaction_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

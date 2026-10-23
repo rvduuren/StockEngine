@@ -1,0 +1,10 @@
+bin/
+obj/
+.vs/
+.idea/
+*.user
+*.suo
+nbomber-reports/
+**/nbomber-reports/
+TestResults/
+*.DotSettings.user

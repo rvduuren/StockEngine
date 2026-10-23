@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Warehouse.StockEngine.Core/Warehouse.StockEngine.Core.csproj" />
+    <Project Path="src/Warehouse.StockEngine.Infrastructure.MariaDb/Warehouse.StockEngine.Infrastructure.MariaDb.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Warehouse.StockEngine.Tests/Warehouse.StockEngine.Tests.csproj" />
+  </Folder>
+</Solution>
