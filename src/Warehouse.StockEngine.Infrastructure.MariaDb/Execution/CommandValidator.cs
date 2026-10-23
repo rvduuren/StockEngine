@@ -11,9 +11,6 @@ internal static class CommandValidator
         foreach (var line in command.Lines)
         {
             Require(line.DocumentLineId, nameof(line.DocumentLineId));
-            Require(line.WarehouseCode, nameof(line.WarehouseCode));
-            Require(line.LocationCode, nameof(line.LocationCode));
-            Require(line.ItemCode, nameof(line.ItemCode));
             RequirePositive(line.Quantity, nameof(line.Quantity));
         }
     }
@@ -24,9 +21,6 @@ internal static class CommandValidator
         foreach (var line in command.Lines)
         {
             Require(line.DocumentLineId, nameof(line.DocumentLineId));
-            Require(line.WarehouseCode, nameof(line.WarehouseCode));
-            Require(line.LocationCode, nameof(line.LocationCode));
-            Require(line.ItemCode, nameof(line.ItemCode));
             RequirePositive(line.Quantity, nameof(line.Quantity));
         }
     }
@@ -37,15 +31,11 @@ internal static class CommandValidator
         foreach (var line in command.Lines)
         {
             Require(line.DocumentLineId, nameof(line.DocumentLineId));
-            Require(line.WarehouseCode, nameof(line.WarehouseCode));
-            Require(line.FromLocationCode, nameof(line.FromLocationCode));
-            Require(line.ToLocationCode, nameof(line.ToLocationCode));
-            Require(line.ItemCode, nameof(line.ItemCode));
             RequirePositive(line.Quantity, nameof(line.Quantity));
 
-            if (string.Equals(line.FromLocationCode, line.ToLocationCode, StringComparison.Ordinal))
+            if (line.FromZone == line.ToZone && line.FromBin == line.ToBin)
             {
-                throw new InvalidStockCommandException("From and to location must differ.");
+                throw new InvalidStockCommandException("From and to bin must differ.");
             }
         }
     }
@@ -56,9 +46,6 @@ internal static class CommandValidator
         foreach (var line in command.Lines)
         {
             Require(line.DocumentLineId, nameof(line.DocumentLineId));
-            Require(line.WarehouseCode, nameof(line.WarehouseCode));
-            Require(line.LocationCode, nameof(line.LocationCode));
-            Require(line.ItemCode, nameof(line.ItemCode));
 
             if (line.CountedQuantity < 0)
             {
