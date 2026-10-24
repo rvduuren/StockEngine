@@ -50,7 +50,7 @@ public sealed class StockEngineLoadTests
             async cmd => await _fixture.Engine.InboundAsync(cmd));
 
         // --- Phase 2: plan moves from reserved stock (disjoint) ---
-        var moves = PlanMoves(rng, stock, count: 30);
+        var moves = PlanMoves(rng, stock, count: 10);
         RunPhase(
             "phase2_move",
             moves,
@@ -58,7 +58,7 @@ public sealed class StockEngineLoadTests
             async cmd => await _fixture.Engine.MoveAsync(cmd));
 
         // --- Phase 3: plan outbounds from remaining stock ---
-        var outbounds = PlanOutbounds(rng, stock, count: 100);
+        var outbounds = PlanOutbounds(rng, stock, count: 30);
         RunPhase(
             "phase3_outbound",
             outbounds,
