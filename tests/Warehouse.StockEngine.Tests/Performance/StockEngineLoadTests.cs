@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using NBomber.CSharp;
 using Warehouse.StockEngine.Core.Commands;
+using Warehouse.StockEngine.Core.Exceptions;
 using Warehouse.StockEngine.Core.Interfaces;
 using Warehouse.StockEngine.Tests.Fixtures;
 using Xunit.Abstractions;
@@ -21,6 +22,228 @@ public sealed class StockEngineLoadTests
     {
         _fixture = fixture;
         _output = output;
+    }
+
+    [Fact]
+    public async Task Heavy_MultiLine_Concurrency_LoadTest_CompletesWithoutDeadlocksOrErrors()
+    {
+        var rng = new Random(1337);
+        const int warehouse = 1;
+        const int zone = 10;
+        var hotBins = new[] { 101, 102, 103, 104, 105, 106 };
+        var skus = new[] { 888001L, 888002L };
+        const decimal initialQuantityPerLocation = 100_000m;
+
+        // --- Step 1: Seed hot locations with ample stock ---
+        var seedLines = new List<InboundStockLine>();
+        var lineNum = 1;
+        foreach (var bin in hotBins)
+        {
+            foreach (var sku in skus)
+            {
+                seedLines.Add(new InboundStockLine(
+                    (lineNum++).ToString(),
+                    warehouse,
+                    zone,
+                    bin,
+                    sku,
+                    initialQuantityPerLocation));
+            }
+        }
+
+        var totalInitialStock = initialQuantityPerLocation * hotBins.Length * skus.Length;
+        await _fixture.Engine.InboundAsync(new InboundStockCommand(
+            Guid.NewGuid(),
+            "SEED-HEAVY-LOAD",
+            seedLines));
+
+        // --- Step 2: Plan multi-line Move and Outbound commands with high contention ---
+        const int totalCommands = 200;
+        const int concurrentUsers = 100;
+
+        var commandQueue = new ConcurrentQueue<Func<Task>>();
+        var executedMoves = new ConcurrentBag<MoveStockCommand>();
+        var executedOutbounds = new ConcurrentBag<OutboundStockCommand>();
+
+        for (var i = 0; i < totalCommands; i++)
+        {
+            var isMove = i % 2 == 0; // 50% Move, 50% Outbound
+            var lineCount = rng.Next(2, 6);
+
+            if (isMove)
+            {
+                var moveLines = new List<MoveStockLine>(lineCount);
+                for (var l = 0; l < lineCount; l++)
+                {
+                    var sku = skus[rng.Next(skus.Length)];
+                    var fromBin = hotBins[rng.Next(hotBins.Length)];
+                    int toBin;
+                    do
+                    {
+                        toBin = hotBins[rng.Next(hotBins.Length)];
+                    } while (toBin == fromBin);
+
+                    moveLines.Add(new MoveStockLine(
+                        (l + 1).ToString(),
+                        warehouse,
+                        FromZone: zone,
+                        FromBin: fromBin,
+                        ToZone: zone,
+                        ToBin: toBin,
+                        Sku: sku,
+                        Quantity: rng.Next(1, 10)));
+                }
+
+                // Intentionally alternate line order (forward vs reversed) to maximize lock contention
+                if (i % 4 == 0)
+                {
+                    moveLines.Reverse();
+                }
+
+                var cmd = new MoveStockCommand(
+                    Guid.NewGuid(),
+                    $"MV-HEAVY-{i + 1:D4}",
+                    moveLines,
+                    Source: "HEAVY_LOAD");
+
+                executedMoves.Add(cmd);
+                commandQueue.Enqueue(async () => await _fixture.Engine.MoveAsync(cmd));
+            }
+            else
+            {
+                var outboundLines = new List<OutboundStockLine>(lineCount);
+                for (var l = 0; l < lineCount; l++)
+                {
+                    var sku = skus[rng.Next(skus.Length)];
+                    var bin = hotBins[rng.Next(hotBins.Length)];
+
+                    outboundLines.Add(new OutboundStockLine(
+                        (l + 1).ToString(),
+                        warehouse,
+                        Zone: zone,
+                        Bin: bin,
+                        Sku: sku,
+                        Quantity: rng.Next(1, 5)));
+                }
+
+                if (i % 4 == 1)
+                {
+                    outboundLines.Reverse();
+                }
+
+                var cmd = new OutboundStockCommand(
+                    Guid.NewGuid(),
+                    $"OUT-HEAVY-{i + 1:D4}",
+                    outboundLines,
+                    Source: "HEAVY_LOAD");
+
+                executedOutbounds.Add(cmd);
+                commandQueue.Enqueue(async () => await _fixture.Engine.OutboundAsync(cmd));
+            }
+        }
+
+        // --- Step 3: Run NBomber scenario with hundreds of virtual users ---
+        var scenario = Scenario.Create("heavy_multiline_concurrency", async _ =>
+        {
+            if (!commandQueue.TryDequeue(out var execute))
+            {
+                return Response.Ok();
+            }
+
+            try
+            {
+                await execute();
+                return Response.Ok();
+            }
+            catch (Exception ex)
+            {
+                return Response.Fail(statusCode: "engine_error", message: ex.Message);
+            }
+        })
+        .WithoutWarmUp()
+        .WithLoadSimulations(
+            Simulation.IterationsForConstant(
+                copies: concurrentUsers,
+                iterations: totalCommands));
+
+        var sw = Stopwatch.StartNew();
+        var stats = NBomberRunner
+            .RegisterScenarios(scenario)
+            .WithReportFolder("nbomber-reports")
+            .Run();
+        sw.Stop();
+
+        var scn = stats.ScenarioStats.Single(s => s.ScenarioName == "heavy_multiline_concurrency");
+
+        // --- Step 4: Measure & Report Metrics ---
+        _output.WriteLine(
+            $"""
+            =================================================================================
+            HEAVY MULTI-LINE CONCURRENCY LOAD TEST REPORT
+            =================================================================================
+            Virtual Users (Concurrency): {concurrentUsers}
+            Total Operations Planned:    {totalCommands}
+            Operations Succeeded:        {scn.Ok.Request.Count}
+            Operations Failed:           {scn.Fail.Request.Count}
+            Throughput (RPS):            {scn.Ok.Request.RPS:F2} req/sec
+            Elapsed Duration:            {sw.Elapsed:g}
+
+            LATENCY DISTRIBUTION (Milliseconds):
+            ---------------------------------------------------------------------------------
+            Min:                         {scn.Ok.Latency.MinMs:F2} ms
+            Mean:                        {scn.Ok.Latency.MeanMs:F2} ms
+            Max:                         {scn.Ok.Latency.MaxMs:F2} ms
+            p50 (Median):                {scn.Ok.Latency.Percent50:F2} ms
+            p75:                         {scn.Ok.Latency.Percent75:F2} ms
+            p95:                         {scn.Ok.Latency.Percent95:F2} ms
+            p99:                         {scn.Ok.Latency.Percent99:F2} ms
+            =================================================================================
+            """);
+
+        // Assert zero errors (no deadlocks, no timeouts, no failures)
+        Assert.Equal(0, scn.Fail.Request.Count);
+        Assert.True(commandQueue.IsEmpty, "All planned operations should have been dequeued and executed.");
+
+        // --- Step 5: Validate Idempotency & Stock Boundaries ---
+        // 5a. Verify Idempotency on a sample of executed moves
+        var sampleMove = executedMoves.First();
+        var replayResult = await _fixture.Engine.MoveAsync(sampleMove);
+        Assert.True(replayResult.WasAlreadyProcessed);
+        Assert.Equal(sampleMove.Lines.Count * 2, replayResult.HistoryRowsWritten);
+
+        // 5b. Verify Idempotency on a sample of executed outbounds
+        var sampleOutbound = executedOutbounds.First();
+        var replayOutbound = await _fixture.Engine.OutboundAsync(sampleOutbound);
+        Assert.True(replayOutbound.WasAlreadyProcessed);
+        Assert.Equal(sampleOutbound.Lines.Count, replayOutbound.HistoryRowsWritten);
+
+        // 5c. Verify Conflict Detection on altered payload
+        var conflictedMove = sampleMove with
+        {
+            Lines = [new MoveStockLine("999", warehouse, 10, 101, 10, 102, 888001L, 999m)]
+        };
+        await Assert.ThrowsAsync<IdempotencyConflictException>(() =>
+            _fixture.Engine.MoveAsync(conflictedMove));
+
+        // 5d. Mathematical Conservation of Stock:
+        // Moves conserve stock. Only Outbounds reduce total units.
+        var totalOutboundedQuantity = executedOutbounds
+            .SelectMany(cmd => cmd.Lines)
+            .Sum(line => line.Quantity);
+
+        decimal actualRemainingStock = 0;
+        foreach (var bin in hotBins)
+        {
+            foreach (var sku in skus)
+            {
+                var qty = await _fixture.Engine.GetQuantityAsync(warehouse, zone, bin, sku);
+                Assert.True(qty >= 0, $"Stock at bin {bin} sku {sku} became negative: {qty}");
+                actualRemainingStock += qty;
+            }
+        }
+
+        var expectedRemainingStock = totalInitialStock - totalOutboundedQuantity;
+        Assert.Equal(expectedRemainingStock, actualRemainingStock);
     }
 
     [Fact]
