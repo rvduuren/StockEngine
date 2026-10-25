@@ -673,7 +673,14 @@ public sealed class StockEngineLoadTests
         int Warehouse, int Zone, int Bin, long Sku,
         decimal HistorySum, decimal InventoryQty, decimal Discrepancy);
 
-    private sealed record OrphanTransactionRow(string TransactionId, int ActualHistoryRows);
+    public class OrphanHistoryRow
+    {
+        public Guid TransactionId { get; set; }
+        public long HistoryCount { get; set; }
+
+        // Dapper heeft deze lege constructor nodig voor materialisatie:
+        public OrphanHistoryRow() { }
+    }
 
     // ─── Data Integrity Audit Test ───────────────────────────────────────────────
 
@@ -918,14 +925,14 @@ public sealed class StockEngineLoadTests
 
         // Also verify no inventory_history row has an orphaned transaction_id
         const string checkBOrphanHistorySql = """
-            SELECT h.transaction_id, COUNT(h.history_id) AS ActualHistoryRows
+            SELECT h.transaction_id AS TransactionId, COUNT(h.history_id) AS HistoryCount
             FROM inventory_history h
             LEFT JOIN inventory_transaction t ON t.transaction_id = h.transaction_id
             WHERE t.transaction_id IS NULL
             GROUP BY h.transaction_id
             """;
 
-        var orphanHistoryRows = (await conn.QueryAsync<OrphanTransactionRow>(
+        var orphanHistoryRows = (await conn.QueryAsync<OrphanHistoryRow>(
             checkBOrphanHistorySql)).ToList();
 
         _output.WriteLine(
