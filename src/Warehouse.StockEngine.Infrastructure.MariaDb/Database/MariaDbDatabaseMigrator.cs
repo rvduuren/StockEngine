@@ -1,7 +1,6 @@
 using System.Data.Common;
 using System.Reflection;
 using Dapper;
-using Warehouse.StockEngine.Core.Interfaces;
 
 namespace Warehouse.StockEngine.Infrastructure.MariaDb.Database;
 

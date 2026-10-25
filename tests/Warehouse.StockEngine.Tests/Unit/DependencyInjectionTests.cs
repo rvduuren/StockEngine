@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Warehouse.StockEngine.Core.Interfaces;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Database;
+using Warehouse.StockEngine.Infrastructure.MariaDb.DependencyInjection;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Execution;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Factories;
 

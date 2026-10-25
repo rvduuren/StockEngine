@@ -1,6 +1,5 @@
 using System.Data.Common;
 using MySqlConnector;
-using Warehouse.StockEngine.Core.Interfaces;
 
 namespace Warehouse.StockEngine.Infrastructure.MariaDb.Factories;
 
