@@ -59,7 +59,7 @@ public sealed class StockEngineLoadTests
             seedLines));
 
         // --- Step 2: Plan multi-line Move and Outbound commands with high contention ---
-        const int totalCommands = 200;
+        const int totalCommands = 5000;
         const int concurrentUsers = 100;
 
         var commandQueue = new ConcurrentQueue<Func<Task>>();
@@ -673,14 +673,7 @@ public sealed class StockEngineLoadTests
         int Warehouse, int Zone, int Bin, long Sku,
         decimal HistorySum, decimal InventoryQty, decimal Discrepancy);
 
-    public class OrphanHistoryRow
-    {
-        public Guid TransactionId { get; set; }
-        public long HistoryCount { get; set; }
-
-        // Dapper heeft deze lege constructor nodig voor materialisatie:
-        public OrphanHistoryRow() { }
-    }
+    public sealed record OrphanHistoryRow(Guid TransactionId, long HistoryCount);
 
     // ─── Data Integrity Audit Test ───────────────────────────────────────────────
 
@@ -724,7 +717,7 @@ public sealed class StockEngineLoadTests
                 case 0: // Inbound — add small quantities
                 {
                     var lines = new List<InboundStockLine>();
-                    var lc = rng.Next(1, 4);
+                    var lc = rng.Next(5, 15);
                     for (var l = 0; l < lc; l++)
                     {
                         lines.Add(new InboundStockLine(
@@ -743,7 +736,7 @@ public sealed class StockEngineLoadTests
                 case 1: // Outbound — remove tiny quantities (stay well above zero)
                 {
                     var lines = new List<OutboundStockLine>();
-                    var lc = rng.Next(1, 4);
+                    var lc = rng.Next(5, 15);
                     for (var l = 0; l < lc; l++)
                     {
                         lines.Add(new OutboundStockLine(
@@ -766,7 +759,7 @@ public sealed class StockEngineLoadTests
                 case 2: // Move — shift stock between bins
                 {
                     var lines = new List<MoveStockLine>();
-                    var lc = rng.Next(1, 4);
+                    var lc = rng.Next(5, 15);
                     for (var l = 0; l < lc; l++)
                     {
                         var fromBin = bins[rng.Next(bins.Length)];
