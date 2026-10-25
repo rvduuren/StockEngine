@@ -14,6 +14,6 @@ public sealed record CountStockLine(
     int Warehouse,
     int Zone,
     int Bin,
-    long Sku,
+    int Product,
     decimal CountedQuantity,
     string? ReasonCode = null);

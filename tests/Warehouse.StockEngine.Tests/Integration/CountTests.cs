@@ -14,56 +14,56 @@ public sealed class CountTests
     [Fact]
     public async Task Count_SetsAbsoluteQuantity()
     {
-        var sku = UniqueSku();
+        var product = UniqueProduct();
         await _fixture.Engine.InboundAsync(new InboundStockCommand(
             Guid.NewGuid(),
             "IN-CNT-SETUP",
-            [new InboundStockLine("1", 1, 40, 400, sku, 10m)]));
+            [new InboundStockLine("1", 1, 40, 400, product, 10m)]));
 
         var result = await _fixture.Engine.CountAsync(new CountStockCommand(
             Guid.NewGuid(),
             "CNT-001",
-            [new CountStockLine("1", 1, 40, 400, sku, 6m)]));
+            [new CountStockLine("1", 1, 40, 400, product, 6m)]));
 
         Assert.False(result.WasAlreadyProcessed);
         Assert.Equal(1, result.HistoryRowsWritten);
-        Assert.Equal(6m, await _fixture.Engine.GetQuantityAsync(1, 40, 400, sku));
+        Assert.Equal(6m, await _fixture.Engine.GetQuantityAsync(1, 40, 400, product));
     }
 
     [Fact]
     public async Task Count_CanIncreaseAboveCurrent()
     {
-        var sku = UniqueSku();
+        var product = UniqueProduct();
         await _fixture.Engine.InboundAsync(new InboundStockCommand(
             Guid.NewGuid(),
             "IN-CNT2-SETUP",
-            [new InboundStockLine("1", 1, 40, 401, sku, 1m)]));
+            [new InboundStockLine("1", 1, 40, 401, product, 1m)]));
 
         await _fixture.Engine.CountAsync(new CountStockCommand(
             Guid.NewGuid(),
             "CNT-002",
-            [new CountStockLine("1", 1, 40, 401, sku, 25m)]));
+            [new CountStockLine("1", 1, 40, 401, product, 25m)]));
 
-        Assert.Equal(25m, await _fixture.Engine.GetQuantityAsync(1, 40, 401, sku));
+        Assert.Equal(25m, await _fixture.Engine.GetQuantityAsync(1, 40, 401, product));
     }
 
     [Fact]
     public async Task Count_PersistsCountedQuantity_AndReasonCode()
     {
-        var sku = UniqueSku();
+        var product = UniqueProduct();
         var transactionId = Guid.NewGuid();
 
         await _fixture.Engine.InboundAsync(new InboundStockCommand(
             Guid.NewGuid(),
             "IN-CNT-REASON",
-            [new InboundStockLine("1", 1, 40, 402, sku, 10m)],
+            [new InboundStockLine("1", 1, 40, 402, product, 10m)],
             Source: "RF",
             UserId: "u-1"));
 
         await _fixture.Engine.CountAsync(new CountStockCommand(
             transactionId,
             "CNT-REASON",
-            [new CountStockLine("1", 1, 40, 402, sku, 7m, ReasonCode: "CYCLE")],
+            [new CountStockLine("1", 1, 40, 402, product, 7m, ReasonCode: "CYCLE")],
             Source: "RF",
             UserId: "u-1",
             DeviceId: "gun-9",
@@ -101,5 +101,5 @@ public sealed class CountTests
         Assert.NotNull(txn.CompletedAt);
     }
 
-    private static long UniqueSku() => Random.Shared.NextInt64(1_000_000, 9_000_000_000);
+    private static int UniqueProduct() => Random.Shared.Next(20, 30);
 }

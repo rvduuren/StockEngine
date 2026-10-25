@@ -29,13 +29,13 @@ public sealed class MariaDbStockEngine : IStockEngine
             AuditFrom(command.Source, command.UserId, command.DeviceId, command.ReasonCode),
             async (conn, tx) =>
             {
-                var keys = command.Lines.Select(l => new InventoryKey(l.Warehouse, l.Zone, l.Bin, l.Sku));
+                var keys = command.Lines.Select(l => new InventoryKey(l.Warehouse, l.Zone, l.Bin, l.Product));
                 var balances = await LockLocationsAsync(conn, tx, keys, cancellationToken);
 
                 var historyRows = 0;
                 foreach (var line in command.Lines)
                 {
-                    var key = new InventoryKey(line.Warehouse, line.Zone, line.Bin, line.Sku);
+                    var key = new InventoryKey(line.Warehouse, line.Zone, line.Bin, line.Product);
                     var before = balances[key];
 
                     await conn.ExecuteAsync(new CommandDefinition(
@@ -46,7 +46,7 @@ public sealed class MariaDbStockEngine : IStockEngine
                             line.Warehouse,
                             line.Zone,
                             line.Bin,
-                            line.Sku
+                            Product = line.Product
                         },
                         tx,
                         cancellationToken: cancellationToken));
@@ -58,7 +58,7 @@ public sealed class MariaDbStockEngine : IStockEngine
                         conn, tx,
                         command.TransactionId, command.DocumentNo, line.DocumentLineId,
                         MovementType.Inbound,
-                        line.Warehouse, line.Zone, line.Bin, line.Sku,
+                        line.Warehouse, line.Zone, line.Bin, line.Product,
                         line.Quantity, before, after,
                         countedQuantity: null,
                         reasonCode: null,
@@ -81,13 +81,13 @@ public sealed class MariaDbStockEngine : IStockEngine
             AuditFrom(command.Source, command.UserId, command.DeviceId, command.ReasonCode),
             async (conn, tx) =>
             {
-                var keys = command.Lines.Select(l => new InventoryKey(l.Warehouse, l.Zone, l.Bin, l.Sku));
+                var keys = command.Lines.Select(l => new InventoryKey(l.Warehouse, l.Zone, l.Bin, l.Product));
                 var balances = await LockLocationsAsync(conn, tx, keys, cancellationToken);
 
                 var historyRows = 0;
                 foreach (var line in command.Lines)
                 {
-                    var key = new InventoryKey(line.Warehouse, line.Zone, line.Bin, line.Sku);
+                    var key = new InventoryKey(line.Warehouse, line.Zone, line.Bin, line.Product);
                     var before = balances[key];
 
                     var affected = await conn.ExecuteAsync(new CommandDefinition(
@@ -98,7 +98,7 @@ public sealed class MariaDbStockEngine : IStockEngine
                             line.Warehouse,
                             line.Zone,
                             line.Bin,
-                            line.Sku
+                            Product = line.Product
                         },
                         tx,
                         cancellationToken: cancellationToken));
@@ -106,7 +106,7 @@ public sealed class MariaDbStockEngine : IStockEngine
                     if (affected == 0)
                     {
                         throw new InsufficientStockException(
-                            line.Warehouse, line.Zone, line.Bin, line.Sku, line.Quantity, before);
+                            line.Warehouse, line.Zone, line.Bin, line.Product, line.Quantity, before);
                     }
 
                     var after = before - line.Quantity;
@@ -116,7 +116,7 @@ public sealed class MariaDbStockEngine : IStockEngine
                         conn, tx,
                         command.TransactionId, command.DocumentNo, line.DocumentLineId,
                         MovementType.Outbound,
-                        line.Warehouse, line.Zone, line.Bin, line.Sku,
+                        line.Warehouse, line.Zone, line.Bin, line.Product,
                         -line.Quantity, before, after,
                         countedQuantity: null,
                         reasonCode: null,
@@ -141,16 +141,16 @@ public sealed class MariaDbStockEngine : IStockEngine
             {
                 var keys = command.Lines.SelectMany(l => new[]
                 {
-                    new InventoryKey(l.Warehouse, l.FromZone, l.FromBin, l.Sku),
-                    new InventoryKey(l.Warehouse, l.ToZone, l.ToBin, l.Sku)
+                    new InventoryKey(l.Warehouse, l.FromZone, l.FromBin, l.Product),
+                    new InventoryKey(l.Warehouse, l.ToZone, l.ToBin, l.Product)
                 });
                 var balances = await LockLocationsAsync(conn, tx, keys, cancellationToken);
 
                 var historyRows = 0;
                 foreach (var line in command.Lines)
                 {
-                    var fromKey = new InventoryKey(line.Warehouse, line.FromZone, line.FromBin, line.Sku);
-                    var toKey = new InventoryKey(line.Warehouse, line.ToZone, line.ToBin, line.Sku);
+                    var fromKey = new InventoryKey(line.Warehouse, line.FromZone, line.FromBin, line.Product);
+                    var toKey = new InventoryKey(line.Warehouse, line.ToZone, line.ToBin, line.Product);
 
                     var fromBefore = balances[fromKey];
                     var toBefore = balances[toKey];
@@ -163,7 +163,7 @@ public sealed class MariaDbStockEngine : IStockEngine
                             line.Warehouse,
                             Zone = line.FromZone,
                             Bin = line.FromBin,
-                            line.Sku
+                            Product = line.Product
                         },
                         tx,
                         cancellationToken: cancellationToken));
@@ -171,7 +171,7 @@ public sealed class MariaDbStockEngine : IStockEngine
                     if (affected == 0)
                     {
                         throw new InsufficientStockException(
-                            line.Warehouse, line.FromZone, line.FromBin, line.Sku, line.Quantity, fromBefore);
+                            line.Warehouse, line.FromZone, line.FromBin, line.Product, line.Quantity, fromBefore);
                     }
 
                     await conn.ExecuteAsync(new CommandDefinition(
@@ -182,7 +182,7 @@ public sealed class MariaDbStockEngine : IStockEngine
                             line.Warehouse,
                             Zone = line.ToZone,
                             Bin = line.ToBin,
-                            line.Sku
+                            Product = line.Product
                         },
                         tx,
                         cancellationToken: cancellationToken));
@@ -197,7 +197,7 @@ public sealed class MariaDbStockEngine : IStockEngine
                         conn, tx,
                         command.TransactionId, command.DocumentNo, line.DocumentLineId,
                         MovementType.Move,
-                        line.Warehouse, line.FromZone, line.FromBin, line.Sku,
+                        line.Warehouse, line.FromZone, line.FromBin, line.Product,
                         -line.Quantity, fromBefore, fromAfter,
                         countedQuantity: null,
                         reasonCode: null,
@@ -208,7 +208,7 @@ public sealed class MariaDbStockEngine : IStockEngine
                         conn, tx,
                         command.TransactionId, command.DocumentNo, line.DocumentLineId,
                         MovementType.Move,
-                        line.Warehouse, line.ToZone, line.ToBin, line.Sku,
+                        line.Warehouse, line.ToZone, line.ToBin, line.Product,
                         line.Quantity, toBefore, toAfter,
                         countedQuantity: null,
                         reasonCode: null,
@@ -231,13 +231,13 @@ public sealed class MariaDbStockEngine : IStockEngine
             AuditFrom(command.Source, command.UserId, command.DeviceId, command.ReasonCode),
             async (conn, tx) =>
             {
-                var keys = command.Lines.Select(l => new InventoryKey(l.Warehouse, l.Zone, l.Bin, l.Sku));
+                var keys = command.Lines.Select(l => new InventoryKey(l.Warehouse, l.Zone, l.Bin, l.Product));
                 var balances = await LockLocationsAsync(conn, tx, keys, cancellationToken);
 
                 var historyRows = 0;
                 foreach (var line in command.Lines)
                 {
-                    var key = new InventoryKey(line.Warehouse, line.Zone, line.Bin, line.Sku);
+                    var key = new InventoryKey(line.Warehouse, line.Zone, line.Bin, line.Product);
                     var before = balances[key];
 
                     await conn.ExecuteAsync(new CommandDefinition(
@@ -248,7 +248,7 @@ public sealed class MariaDbStockEngine : IStockEngine
                             line.Warehouse,
                             line.Zone,
                             line.Bin,
-                            line.Sku
+                            Product = line.Product
                         },
                         tx,
                         cancellationToken: cancellationToken));
@@ -261,7 +261,7 @@ public sealed class MariaDbStockEngine : IStockEngine
                         conn, tx,
                         command.TransactionId, command.DocumentNo, line.DocumentLineId,
                         MovementType.Count,
-                        line.Warehouse, line.Zone, line.Bin, line.Sku,
+                        line.Warehouse, line.Zone, line.Bin, line.Product,
                         delta, before, after,
                         countedQuantity: line.CountedQuantity,
                         reasonCode: line.ReasonCode,
@@ -278,7 +278,7 @@ public sealed class MariaDbStockEngine : IStockEngine
         int warehouse,
         int zone,
         int bin,
-        long sku,
+        int product,
         CancellationToken cancellationToken = default)
     {
         await using var connection = _connectionFactory.CreateConnection();
@@ -286,7 +286,7 @@ public sealed class MariaDbStockEngine : IStockEngine
 
         var quantity = await connection.QuerySingleOrDefaultAsync<decimal?>(new CommandDefinition(
             StockQueries.GetQuantity,
-            new { Warehouse = warehouse, Zone = zone, Bin = bin, Sku = sku },
+            new { Warehouse = warehouse, Zone = zone, Bin = bin, Product = product },
             cancellationToken: cancellationToken));
 
         return quantity ?? 0m;
@@ -402,8 +402,8 @@ public sealed class MariaDbStockEngine : IStockEngine
 
         foreach (var key in sortedUniqueKeys)
         {
-            await EnsureRowAsync(connection, transaction, key.Warehouse, key.Zone, key.Bin, key.Sku, cancellationToken);
-            var qty = await LockQuantityAsync(connection, transaction, key.Warehouse, key.Zone, key.Bin, key.Sku, cancellationToken);
+            await EnsureRowAsync(connection, transaction, key.Warehouse, key.Zone, key.Bin, key.Product, cancellationToken);
+            var qty = await LockQuantityAsync(connection, transaction, key.Warehouse, key.Zone, key.Bin, key.Product, cancellationToken);
             balances[key] = qty;
         }
 
@@ -416,14 +416,14 @@ public sealed class MariaDbStockEngine : IStockEngine
         int warehouse,
         int zone,
         int bin,
-        long sku,
+        long product,
         CancellationToken cancellationToken)
     {
         try
         {
             await connection.ExecuteAsync(new CommandDefinition(
                 StockQueries.EnsureInventoryRow,
-                new { Warehouse = warehouse, Zone = zone, Bin = bin, Sku = sku },
+                new { Warehouse = warehouse, Zone = zone, Bin = bin, Product = product },
                 transaction,
                 cancellationToken: cancellationToken));
         }
@@ -439,12 +439,12 @@ public sealed class MariaDbStockEngine : IStockEngine
         int warehouse,
         int zone,
         int bin,
-        long sku,
+        long product,
         CancellationToken cancellationToken)
     {
         return await connection.QuerySingleAsync<decimal>(new CommandDefinition(
             StockQueries.LockQuantity,
-            new { Warehouse = warehouse, Zone = zone, Bin = bin, Sku = sku },
+            new { Warehouse = warehouse, Zone = zone, Bin = bin, Product = product },
             transaction,
             cancellationToken: cancellationToken));
     }
@@ -459,7 +459,7 @@ public sealed class MariaDbStockEngine : IStockEngine
         int warehouse,
         int zone,
         int bin,
-        long sku,
+        long product,
         decimal quantityDelta,
         decimal quantityBefore,
         decimal quantityAfter,
@@ -478,7 +478,7 @@ public sealed class MariaDbStockEngine : IStockEngine
                 Warehouse = warehouse,
                 Zone = zone,
                 Bin = bin,
-                Sku = sku,
+                Product = product,
                 QuantityDelta = quantityDelta,
                 QuantityBefore = quantityBefore,
                 QuantityAfter = quantityAfter,
@@ -498,7 +498,7 @@ public sealed class MariaDbStockEngine : IStockEngine
         string? DeviceId,
         string? ReasonCode);
 
-    internal readonly record struct InventoryKey(int Warehouse, int Zone, int Bin, long Sku) : IComparable<InventoryKey>
+    internal readonly record struct InventoryKey(int Warehouse, int Zone, int Bin, long Product) : IComparable<InventoryKey>
     {
         public int CompareTo(InventoryKey other)
         {
@@ -511,7 +511,7 @@ public sealed class MariaDbStockEngine : IStockEngine
             cmp = Bin.CompareTo(other.Bin);
             if (cmp != 0) return cmp;
 
-            return Sku.CompareTo(other.Sku);
+            return Product.CompareTo(other.Product);
         }
     }
 }

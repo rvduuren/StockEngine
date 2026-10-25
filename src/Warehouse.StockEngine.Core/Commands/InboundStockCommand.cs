@@ -14,5 +14,5 @@ public sealed record InboundStockLine(
     int Warehouse,
     int Zone,
     int Bin,
-    long Sku,
+    int Product,
     decimal Quantity);

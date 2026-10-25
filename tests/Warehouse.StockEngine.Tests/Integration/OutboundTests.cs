@@ -14,39 +14,39 @@ public sealed class OutboundTests
     [Fact]
     public async Task Outbound_DecreasesQuantity()
     {
-        var sku = UniqueSku();
+        var product = UniqueProduct();
         await _fixture.Engine.InboundAsync(new InboundStockCommand(
             Guid.NewGuid(),
             "IN-OUT-SETUP",
-            [new InboundStockLine("1", 1, 20, 200, sku, 20m)]));
+            [new InboundStockLine("1", 1, 20, 200, product, 20m)]));
 
         var result = await _fixture.Engine.OutboundAsync(new OutboundStockCommand(
             Guid.NewGuid(),
             "OUT-001",
-            [new OutboundStockLine("1", 1, 20, 200, sku, 7m)]));
+            [new OutboundStockLine("1", 1, 20, 200, product, 7m)]));
 
         Assert.False(result.WasAlreadyProcessed);
         Assert.Equal(1, result.HistoryRowsWritten);
-        Assert.Equal(13m, await _fixture.Engine.GetQuantityAsync(1, 20, 200, sku));
+        Assert.Equal(13m, await _fixture.Engine.GetQuantityAsync(1, 20, 200, product));
     }
 
     [Fact]
     public async Task Outbound_RejectsNegativeStock()
     {
-        var sku = UniqueSku();
+        var product = UniqueProduct();
         await _fixture.Engine.InboundAsync(new InboundStockCommand(
             Guid.NewGuid(),
             "IN-OUT-NEG",
-            [new InboundStockLine("1", 1, 20, 201, sku, 3m)]));
+            [new InboundStockLine("1", 1, 20, 201, product, 3m)]));
 
         await Assert.ThrowsAsync<InsufficientStockException>(() =>
             _fixture.Engine.OutboundAsync(new OutboundStockCommand(
                 Guid.NewGuid(),
                 "OUT-NEG",
-                [new OutboundStockLine("1", 1, 20, 201, sku, 5m)])));
+                [new OutboundStockLine("1", 1, 20, 201, product, 5m)])));
 
-        Assert.Equal(3m, await _fixture.Engine.GetQuantityAsync(1, 20, 201, sku));
+        Assert.Equal(3m, await _fixture.Engine.GetQuantityAsync(1, 20, 201, product));
     }
 
-    private static long UniqueSku() => Random.Shared.NextInt64(1_000_000, 9_000_000_000);
+    private static int UniqueProduct() => Random.Shared.Next(20, 30);
 }

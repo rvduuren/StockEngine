@@ -15,18 +15,18 @@ public sealed class InboundTests
     public async Task Inbound_IncreasesQuantity_AndWritesHistory()
     {
         var transactionId = Guid.NewGuid();
-        var sku = UniqueSku();
+        var product = UniqueProduct();
         var result = await _fixture.Engine.InboundAsync(new InboundStockCommand(
             transactionId,
             "IN-001",
             [
-                new InboundStockLine("1", 1, 10, 100, sku, 10m),
-                new InboundStockLine("2", 1, 10, 100, sku, 5m)
+                new InboundStockLine("1", 1, 10, 100, product, 10m),
+                new InboundStockLine("2", 1, 10, 100, product, 5m)
             ]));
 
         Assert.False(result.WasAlreadyProcessed);
         Assert.Equal(2, result.HistoryRowsWritten);
-        Assert.Equal(15m, await _fixture.Engine.GetQuantityAsync(1, 10, 100, sku));
+        Assert.Equal(15m, await _fixture.Engine.GetQuantityAsync(1, 10, 100, product));
     }
 
     [Fact]
@@ -36,8 +36,8 @@ public sealed class InboundTests
             _fixture.Engine.InboundAsync(new InboundStockCommand(
                 Guid.NewGuid(),
                 "IN-BAD",
-                [new InboundStockLine("1", 1, 10, 100, UniqueSku(), 0m)])));
+                [new InboundStockLine("1", 1, 10, 100, UniqueProduct(), 0m)])));
     }
 
-    private static long UniqueSku() => Random.Shared.NextInt64(1_000_000, 9_000_000_000);
+    private static int UniqueProduct() => Random.Shared.Next(20, 30);
 }

@@ -13,8 +13,8 @@ public sealed class ConcurrencyTests
     [Fact]
     public async Task Concurrent_MultiLine_Moves_InOppositeOrder_DoNotDeadlock()
     {
-        var sku1 = UniqueSku();
-        var sku2 = UniqueSku();
+        var product1 = UniqueProduct();
+        var product2 = UniqueProduct();
 
         const int warehouse = 1;
         const int zone = 10;
@@ -28,10 +28,10 @@ public sealed class ConcurrencyTests
             Guid.NewGuid(),
             "SEED-CONC",
             [
-                new InboundStockLine("S1", warehouse, zone, binA, sku1, 500m),
-                new InboundStockLine("S2", warehouse, zone, binB, sku1, 500m),
-                new InboundStockLine("S3", warehouse, zone, binC, sku2, 500m),
-                new InboundStockLine("S4", warehouse, zone, binD, sku2, 500m)
+                new InboundStockLine("S1", warehouse, zone, binA, product1, 500m),
+                new InboundStockLine("S2", warehouse, zone, binB, product1, 500m),
+                new InboundStockLine("S3", warehouse, zone, binC, product2, 500m),
+                new InboundStockLine("S4", warehouse, zone, binD, product2, 500m)
             ]));
 
         const int taskCount = 20;
@@ -48,8 +48,8 @@ public sealed class ConcurrencyTests
                     Guid.NewGuid(),
                     $"MV-FWD-{i}",
                     [
-                        new MoveStockLine("1", warehouse, FromZone: zone, FromBin: binA, ToZone: zone, ToBin: binB, Sku: sku1, Quantity: 2m),
-                        new MoveStockLine("2", warehouse, FromZone: zone, FromBin: binC, ToZone: zone, ToBin: binD, Sku: sku2, Quantity: 2m)
+                        new MoveStockLine("1", warehouse, FromZone: zone, FromBin: binA, ToZone: zone, ToBin: binB, Product: product1, Quantity: 2m),
+                        new MoveStockLine("2", warehouse, FromZone: zone, FromBin: binC, ToZone: zone, ToBin: binD, Product: product2, Quantity: 2m)
                     ]));
             }
             else
@@ -59,8 +59,8 @@ public sealed class ConcurrencyTests
                     Guid.NewGuid(),
                     $"MV-REV-{i}",
                     [
-                        new MoveStockLine("1", warehouse, FromZone: zone, FromBin: binD, ToZone: zone, ToBin: binC, Sku: sku2, Quantity: 2m),
-                        new MoveStockLine("2", warehouse, FromZone: zone, FromBin: binB, ToZone: zone, ToBin: binA, Sku: sku1, Quantity: 2m)
+                        new MoveStockLine("1", warehouse, FromZone: zone, FromBin: binD, ToZone: zone, ToBin: binC, Product: product2, Quantity: 2m),
+                        new MoveStockLine("2", warehouse, FromZone: zone, FromBin: binB, ToZone: zone, ToBin: binA, Product: product1, Quantity: 2m)
                     ]));
             }
         }));
@@ -68,20 +68,20 @@ public sealed class ConcurrencyTests
         // All tasks should complete successfully without MySqlException 1213 (Deadlock)
         await Task.WhenAll(tasks);
 
-        // Verify total inventory balance is conserved (500*2 = 1000 for each SKU)
-        var totalSku1 = await _fixture.Engine.GetQuantityAsync(warehouse, zone, binA, sku1)
-                      + await _fixture.Engine.GetQuantityAsync(warehouse, zone, binB, sku1);
-        var totalSku2 = await _fixture.Engine.GetQuantityAsync(warehouse, zone, binC, sku2)
-                      + await _fixture.Engine.GetQuantityAsync(warehouse, zone, binD, sku2);
+        // Verify total inventory balance is conserved (500*2 = 1000 for each PRODUCT)
+        var totalProduct1 = await _fixture.Engine.GetQuantityAsync(warehouse, zone, binA, product1)
+                      + await _fixture.Engine.GetQuantityAsync(warehouse, zone, binB, product1);
+        var totalProduct2 = await _fixture.Engine.GetQuantityAsync(warehouse, zone, binC, product2)
+                      + await _fixture.Engine.GetQuantityAsync(warehouse, zone, binD, product2);
 
-        Assert.Equal(1000m, totalSku1);
-        Assert.Equal(1000m, totalSku2);
+        Assert.Equal(1000m, totalProduct1);
+        Assert.Equal(1000m, totalProduct2);
     }
 
     [Fact]
     public async Task Concurrent_MultiLine_InboundAndOutbound_InReverseOrder_DoNotDeadlock()
     {
-        var sku = UniqueSku();
+        var product = UniqueProduct();
         const int warehouse = 1;
         const int zone = 20;
         const int binX = 500;
@@ -92,8 +92,8 @@ public sealed class ConcurrencyTests
             Guid.NewGuid(),
             "SEED-INOUT",
             [
-                new InboundStockLine("1", warehouse, zone, binX, sku, 1000m),
-                new InboundStockLine("2", warehouse, zone, binY, sku, 1000m)
+                new InboundStockLine("1", warehouse, zone, binX, product, 1000m),
+                new InboundStockLine("2", warehouse, zone, binY, product, 1000m)
             ]));
 
         const int iterations = 10;
@@ -107,8 +107,8 @@ public sealed class ConcurrencyTests
                 Guid.NewGuid(),
                 $"IN-CONC-{i}",
                 [
-                    new InboundStockLine("1", warehouse, zone, binX, sku, 5m),
-                    new InboundStockLine("2", warehouse, zone, binY, sku, 5m)
+                    new InboundStockLine("1", warehouse, zone, binX, product, 5m),
+                    new InboundStockLine("2", warehouse, zone, binY, product, 5m)
                 ]));
         }));
 
@@ -120,20 +120,20 @@ public sealed class ConcurrencyTests
                 Guid.NewGuid(),
                 $"OUT-CONC-{i}",
                 [
-                    new OutboundStockLine("1", warehouse, zone, binY, sku, 5m),
-                    new OutboundStockLine("2", warehouse, zone, binX, sku, 5m)
+                    new OutboundStockLine("1", warehouse, zone, binY, product, 5m),
+                    new OutboundStockLine("2", warehouse, zone, binX, product, 5m)
                 ]));
         }));
 
         await Task.WhenAll(inbounds.Concat(outbounds));
 
         // After equal inbounds and outbounds, stock should remain exactly 1000m each
-        var qtyX = await _fixture.Engine.GetQuantityAsync(warehouse, zone, binX, sku);
-        var qtyY = await _fixture.Engine.GetQuantityAsync(warehouse, zone, binY, sku);
+        var qtyX = await _fixture.Engine.GetQuantityAsync(warehouse, zone, binX, product);
+        var qtyY = await _fixture.Engine.GetQuantityAsync(warehouse, zone, binY, product);
 
         Assert.Equal(1000m, qtyX);
         Assert.Equal(1000m, qtyY);
     }
 
-    private static long UniqueSku() => Random.Shared.NextInt64(1_000_000, 9_000_000_000);
+    private static int UniqueProduct() => Random.Shared.Next(20, 30);
 }

@@ -32,7 +32,7 @@ public sealed class StockEngineLoadTests
         const int warehouse = 1;
         const int zone = 10;
         var hotBins = new[] { 101, 102, 103, 104, 105, 106 };
-        var skus = new[] { 888001L, 888002L };
+        var products = new[] { 10, 30 };
         const decimal initialQuantityPerLocation = 100_000m;
 
         // --- Step 1: Seed hot locations with ample stock ---
@@ -40,19 +40,19 @@ public sealed class StockEngineLoadTests
         var lineNum = 1;
         foreach (var bin in hotBins)
         {
-            foreach (var sku in skus)
+            foreach (var product in products)
             {
                 seedLines.Add(new InboundStockLine(
                     (lineNum++).ToString(),
                     warehouse,
                     zone,
                     bin,
-                    sku,
+                    product,
                     initialQuantityPerLocation));
             }
         }
 
-        var totalInitialStock = initialQuantityPerLocation * hotBins.Length * skus.Length;
+        var totalInitialStock = initialQuantityPerLocation * hotBins.Length * products.Length;
         await _fixture.Engine.InboundAsync(new InboundStockCommand(
             Guid.NewGuid(),
             "SEED-HEAVY-LOAD",
@@ -76,7 +76,7 @@ public sealed class StockEngineLoadTests
                 var moveLines = new List<MoveStockLine>(lineCount);
                 for (var l = 0; l < lineCount; l++)
                 {
-                    var sku = skus[rng.Next(skus.Length)];
+                    var product = products[rng.Next(products.Length)];
                     var fromBin = hotBins[rng.Next(hotBins.Length)];
                     int toBin;
                     do
@@ -91,7 +91,7 @@ public sealed class StockEngineLoadTests
                         FromBin: fromBin,
                         ToZone: zone,
                         ToBin: toBin,
-                        Sku: sku,
+                        Product: product,
                         Quantity: rng.Next(1, 10)));
                 }
 
@@ -115,7 +115,7 @@ public sealed class StockEngineLoadTests
                 var outboundLines = new List<OutboundStockLine>(lineCount);
                 for (var l = 0; l < lineCount; l++)
                 {
-                    var sku = skus[rng.Next(skus.Length)];
+                    var product = products[rng.Next(products.Length)];
                     var bin = hotBins[rng.Next(hotBins.Length)];
 
                     outboundLines.Add(new OutboundStockLine(
@@ -123,7 +123,7 @@ public sealed class StockEngineLoadTests
                         warehouse,
                         Zone: zone,
                         Bin: bin,
-                        Sku: sku,
+                        Product: product,
                         Quantity: rng.Next(1, 5)));
                 }
 
@@ -221,7 +221,7 @@ public sealed class StockEngineLoadTests
         // 5c. Verify Conflict Detection on altered payload
         var conflictedMove = sampleMove with
         {
-            Lines = [new MoveStockLine("999", warehouse, 10, 101, 10, 102, 888001L, 999m)]
+            Lines = [new MoveStockLine("999", warehouse, 10, 101, 10, 102, 30, 999m)]
         };
         await Assert.ThrowsAsync<IdempotencyConflictException>(() =>
             _fixture.Engine.MoveAsync(conflictedMove));
@@ -235,10 +235,10 @@ public sealed class StockEngineLoadTests
         decimal actualRemainingStock = 0;
         foreach (var bin in hotBins)
         {
-            foreach (var sku in skus)
+            foreach (var product in products)
             {
-                var qty = await _fixture.Engine.GetQuantityAsync(warehouse, zone, bin, sku);
-                Assert.True(qty >= 0, $"Stock at bin {bin} sku {sku} became negative: {qty}");
+                var qty = await _fixture.Engine.GetQuantityAsync(warehouse, zone, bin, product);
+                Assert.True(qty >= 0, $"Stock at bin {bin} product {product} became negative: {qty}");
                 actualRemainingStock += qty;
             }
         }
@@ -251,19 +251,19 @@ public sealed class StockEngineLoadTests
     public void MultiPhase_Warehouse_Load_CompletesWithoutErrors()
     {
         var rng = new Random(Seed);
-        var skuSeq = Random.Shared.NextInt64(1_000_000_000, 8_000_000_000);
-        long NextSku() => Interlocked.Increment(ref skuSeq);
+        var productSeq = Random.Shared.Next(20, 30);
+        int NextProduct() => Interlocked.Increment(ref productSeq);
 
         var locations = BuildLocationPool();
         var stock = new StockLedger();
 
         // --- Phase 1: plan + run inbounds ---
-        var inbounds = PlanInbounds(rng, locations, NextSku, count: 10);
+        var inbounds = PlanInbounds(rng, locations, NextProduct, count: 10);
         foreach (var cmd in inbounds)
         {
             foreach (var line in cmd.Lines)
             {
-                stock.Add(line.Warehouse, line.Zone, line.Bin, line.Sku, line.Quantity);
+                stock.Add(line.Warehouse, line.Zone, line.Bin, line.Product, line.Quantity);
             }
         }
 
@@ -291,12 +291,12 @@ public sealed class StockEngineLoadTests
 
         // --- Phase 4: counts + bijstuur inbounds ---
         var counts = PlanCounts(rng, stock, count: 12);
-        var bijstuur = PlanBijstuurInbounds(rng, locations, NextSku, count: 5);
+        var bijstuur = PlanBijstuurInbounds(rng, locations, NextProduct, count: 5);
         foreach (var cmd in bijstuur)
         {
             foreach (var line in cmd.Lines)
             {
-                stock.Add(line.Warehouse, line.Zone, line.Bin, line.Sku, line.Quantity);
+                stock.Add(line.Warehouse, line.Zone, line.Bin, line.Product, line.Quantity);
             }
         }
 
@@ -414,7 +414,7 @@ public sealed class StockEngineLoadTests
     private static List<InboundStockCommand> PlanInbounds(
         Random rng,
         IReadOnlyList<(int Zone, int Bin)> locations,
-        Func<long> nextSku,
+        Func<int> nextProduct,
         int count)
     {
         var commands = new List<InboundStockCommand>(count);
@@ -430,7 +430,7 @@ public sealed class StockEngineLoadTests
                     Warehouse: Warehouse,
                     Zone: zone,
                     Bin: bin,
-                    Sku: nextSku(),
+                    Product: nextProduct(),
                     Quantity: rng.Next(3, 21)));
             }
 
@@ -460,13 +460,13 @@ public sealed class StockEngineLoadTests
                 }
 
                 var qty = Math.Min(rng.Next(1, 6), (int)lot.Quantity);
-                if (qty <= 0 || !stock.TryReserve(lot.Warehouse, lot.Zone, lot.Bin, lot.Sku, qty))
+                if (qty <= 0 || !stock.TryReserve(lot.Warehouse, lot.Zone, lot.Bin, lot.Product, qty))
                 {
                     break;
                 }
 
                 var (toZone, toBin) = PickDifferentBin(rng, lot.Zone, lot.Bin);
-                stock.Add(lot.Warehouse, toZone, toBin, lot.Sku, qty);
+                stock.Add(lot.Warehouse, toZone, toBin, lot.Product, qty);
 
                 lines.Add(new MoveStockLine(
                     DocumentLineId: (line + 1).ToString(),
@@ -475,7 +475,7 @@ public sealed class StockEngineLoadTests
                     FromBin: lot.Bin,
                     ToZone: toZone,
                     ToBin: toBin,
-                    Sku: lot.Sku,
+                    Product: lot.Product,
                     Quantity: qty));
             }
 
@@ -508,7 +508,7 @@ public sealed class StockEngineLoadTests
                 }
 
                 var qty = Math.Min(rng.Next(1, 6), (int)lot.Quantity);
-                if (qty <= 0 || !stock.TryReserve(lot.Warehouse, lot.Zone, lot.Bin, lot.Sku, qty))
+                if (qty <= 0 || !stock.TryReserve(lot.Warehouse, lot.Zone, lot.Bin, lot.Product, qty))
                 {
                     break;
                 }
@@ -518,7 +518,7 @@ public sealed class StockEngineLoadTests
                     Warehouse: lot.Warehouse,
                     Zone: lot.Zone,
                     Bin: lot.Bin,
-                    Sku: lot.Sku,
+                    Product: lot.Product,
                     Quantity: qty));
             }
 
@@ -572,7 +572,7 @@ public sealed class StockEngineLoadTests
                     var delta = rng.Next(1, 6) * (rng.Next(2) == 0 ? 1 : -1);
                     counted = Math.Max(0, lot.Quantity + delta);
                     reason = "ADJUST";
-                    stock.Set(lot.Warehouse, lot.Zone, lot.Bin, lot.Sku, counted);
+                    stock.Set(lot.Warehouse, lot.Zone, lot.Bin, lot.Product, counted);
                 }
 
                 lines.Add(new CountStockLine(
@@ -580,7 +580,7 @@ public sealed class StockEngineLoadTests
                     Warehouse: lot.Warehouse,
                     Zone: lot.Zone,
                     Bin: lot.Bin,
-                    Sku: lot.Sku,
+                    Product: lot.Product,
                     CountedQuantity: counted,
                     ReasonCode: reason));
             }
@@ -599,7 +599,7 @@ public sealed class StockEngineLoadTests
     private static List<InboundStockCommand> PlanBijstuurInbounds(
         Random rng,
         IReadOnlyList<(int Zone, int Bin)> locations,
-        Func<long> nextSku,
+        Func<int> nextProduct,
         int count)
     {
         var commands = new List<InboundStockCommand>(count);
@@ -615,7 +615,7 @@ public sealed class StockEngineLoadTests
                     Warehouse: Warehouse,
                     Zone: zone,
                     Bin: bin,
-                    Sku: nextSku(),
+                    Product: nextProduct(),
                     Quantity: rng.Next(1, 6)));
             }
 
@@ -656,7 +656,7 @@ public sealed class StockEngineLoadTests
         for (var i = 0; i < take; i++)
         {
             var lot = lots[rng.Next(lots.Count)];
-            var dbQty = engine.GetQuantityAsync(lot.Warehouse, lot.Zone, lot.Bin, lot.Sku)
+            var dbQty = engine.GetQuantityAsync(lot.Warehouse, lot.Zone, lot.Bin, lot.Product)
                 .GetAwaiter().GetResult();
             if (dbQty != lot.Quantity)
             {
@@ -670,7 +670,7 @@ public sealed class StockEngineLoadTests
     // ─── Data Integrity Result Records ──────────────────────────────────────────
 
     private sealed record DiscrepancyRow(
-        int Warehouse, int Zone, int Bin, long Sku,
+        int Warehouse, int Zone, int Bin, int Product,
         decimal HistorySum, decimal InventoryQty, decimal Discrepancy);
 
     public sealed record OrphanHistoryRow(Guid TransactionId, long HistoryCount);
@@ -680,21 +680,21 @@ public sealed class StockEngineLoadTests
     [Fact]
     public async Task DataIntegrity_AfterLoadTest_AllChecksPass()
     {
-        // ── Arrange: seed stock across 10 bins × 5 SKUs ──────────────────────────
+        // ── Arrange: seed stock across 10 bins × 5 PRODUCTs ──────────────────────────
         const int warehouse = 2; // isolated warehouse so other tests don't interfere
         const int zone = 50;
         var bins = new[] { 201, 202, 203, 204, 205, 206, 207, 208, 209, 210 };
-        var skus = new[] { 77_001L, 77_002L, 77_003L, 77_004L, 77_005L };
+        var products = new[] { 10, 20, 30, 40, 50 };
         const decimal initialQtyPerLot = 10_000m;
 
         var seedLines = new List<InboundStockLine>();
         var lineNum = 1;
         foreach (var bin in bins)
         {
-            foreach (var sku in skus)
+            foreach (var product in products)
             {
                 seedLines.Add(new InboundStockLine(
-                    (lineNum++).ToString(), warehouse, zone, bin, sku, initialQtyPerLot));
+                    (lineNum++).ToString(), warehouse, zone, bin, product, initialQtyPerLot));
             }
         }
 
@@ -723,7 +723,7 @@ public sealed class StockEngineLoadTests
                         lines.Add(new InboundStockLine(
                             (l + 1).ToString(), warehouse, zone,
                             bins[rng.Next(bins.Length)],
-                            skus[rng.Next(skus.Length)],
+                            products[rng.Next(products.Length)],
                             rng.Next(1, 20)));
                     }
 
@@ -742,7 +742,7 @@ public sealed class StockEngineLoadTests
                         lines.Add(new OutboundStockLine(
                             (l + 1).ToString(), warehouse, zone,
                             bins[rng.Next(bins.Length)],
-                            skus[rng.Next(skus.Length)],
+                            products[rng.Next(products.Length)],
                             rng.Next(1, 5))); // tiny qty → never goes negative
                     }
 
@@ -771,7 +771,7 @@ public sealed class StockEngineLoadTests
                             (l + 1).ToString(), warehouse,
                             FromZone: zone, FromBin: fromBin,
                             ToZone: zone, ToBin: toBin,
-                            Sku: skus[rng.Next(skus.Length)],
+                            Product: products[rng.Next(products.Length)],
                             Quantity: rng.Next(1, 10)));
                     }
 
@@ -788,16 +788,16 @@ public sealed class StockEngineLoadTests
                     break;
                 }
 
-                default: // Count — reconcile a random bin/sku
+                default: // Count — reconcile a random bin/product
                 {
                     var bin = bins[rng.Next(bins.Length)];
-                    var sku = skus[rng.Next(skus.Length)];
-                    var currentQty = await _fixture.Engine.GetQuantityAsync(warehouse, zone, bin, sku);
+                    var product = products[rng.Next(products.Length)];
+                    var currentQty = await _fixture.Engine.GetQuantityAsync(warehouse, zone, bin, product);
                     var countedQty = Math.Max(0, currentQty + rng.Next(-5, 6));
 
                     var lines = new List<CountStockLine>
                     {
-                        new CountStockLine("1", warehouse, zone, bin, sku, countedQty, "DI-CHECK")
+                        new CountStockLine("1", warehouse, zone, bin, product, countedQty, "DI-CHECK")
                     };
 
                     var cmd = new CountStockCommand(
@@ -876,7 +876,7 @@ public sealed class StockEngineLoadTests
         // ── Check A: SUM(quantity_delta) per lot must equal inventory.quantity ───
         const string checkASql = """
             SELECT
-                h.warehouse, h.zone, h.bin, h.sku,
+                h.warehouse, h.zone, h.bin, h.product,
                 SUM(h.quantity_delta)  AS HistorySum,
                 i.quantity             AS InventoryQty,
                 SUM(h.quantity_delta) - i.quantity AS Discrepancy
@@ -885,9 +885,9 @@ public sealed class StockEngineLoadTests
                 ON  i.warehouse = h.warehouse
                 AND i.zone      = h.zone
                 AND i.bin       = h.bin
-                AND i.sku       = h.sku
+                AND i.product       = h.product
             WHERE h.warehouse = @warehouse
-            GROUP BY h.warehouse, h.zone, h.bin, h.sku
+            GROUP BY h.warehouse, h.zone, h.bin, h.product
             HAVING ABS(SUM(h.quantity_delta) - i.quantity) > 0.0001
             """;
 
@@ -902,7 +902,7 @@ public sealed class StockEngineLoadTests
                 ? "PASS ✓  All history sums match inventory quantities exactly."
                 : string.Join(Environment.NewLine,
                     discrepancies.Select(d =>
-                        $"  FAIL ✗  wh={d.Warehouse} zone={d.Zone} bin={d.Bin} sku={d.Sku}" +
+                        $"  FAIL ✗  wh={d.Warehouse} zone={d.Zone} bin={d.Bin} product={d.Product}" +
                         $"  histSum={d.HistorySum} invQty={d.InventoryQty} delta={d.Discrepancy}")))}
             """);
 
@@ -965,11 +965,11 @@ public sealed class StockEngineLoadTests
         Assert.Equal(0, negativeCount);
     }
 
-    private readonly record struct StockKey(int Warehouse, int Zone, int Bin, long Sku);
+    private readonly record struct StockKey(int Warehouse, int Zone, int Bin, int Product);
 
-    private sealed record StockLot(int Warehouse, int Zone, int Bin, long Sku, decimal Quantity)
+    private sealed record StockLot(int Warehouse, int Zone, int Bin, int Product, decimal Quantity)
     {
-        public StockKey Key => new(Warehouse, Zone, Bin, Sku);
+        public StockKey Key => new(Warehouse, Zone, Bin, Product);
     }
 
     /// <summary>
@@ -982,15 +982,15 @@ public sealed class StockEngineLoadTests
 
         public int LotCount => _qty.Count;
 
-        public void Add(int warehouse, int zone, int bin, long sku, decimal quantity)
+        public void Add(int warehouse, int zone, int bin, int product, decimal quantity)
         {
-            var key = new StockKey(warehouse, zone, bin, sku);
+            var key = new StockKey(warehouse, zone, bin, product);
             _qty[key] = _qty.TryGetValue(key, out var current) ? current + quantity : quantity;
         }
 
-        public void Set(int warehouse, int zone, int bin, long sku, decimal quantity)
+        public void Set(int warehouse, int zone, int bin, int product, decimal quantity)
         {
-            var key = new StockKey(warehouse, zone, bin, sku);
+            var key = new StockKey(warehouse, zone, bin, product);
             if (quantity <= 0)
             {
                 _qty.Remove(key);
@@ -1001,9 +1001,9 @@ public sealed class StockEngineLoadTests
             }
         }
 
-        public bool TryReserve(int warehouse, int zone, int bin, long sku, decimal quantity)
+        public bool TryReserve(int warehouse, int zone, int bin, int product, decimal quantity)
         {
-            var key = new StockKey(warehouse, zone, bin, sku);
+            var key = new StockKey(warehouse, zone, bin, product);
             if (!_qty.TryGetValue(key, out var available) || available < quantity)
             {
                 return false;
@@ -1026,7 +1026,7 @@ public sealed class StockEngineLoadTests
         {
             var candidates = _qty
                 .Where(kv => kv.Value >= minQty)
-                .Select(kv => new StockLot(kv.Key.Warehouse, kv.Key.Zone, kv.Key.Bin, kv.Key.Sku, kv.Value))
+                .Select(kv => new StockLot(kv.Key.Warehouse, kv.Key.Zone, kv.Key.Bin, kv.Key.Product, kv.Value))
                 .ToList();
 
             if (candidates.Count == 0)
@@ -1042,7 +1042,7 @@ public sealed class StockEngineLoadTests
         public List<StockLot> SnapshotPositiveLots()
             => _qty
                 .Where(kv => kv.Value > 0)
-                .Select(kv => new StockLot(kv.Key.Warehouse, kv.Key.Zone, kv.Key.Bin, kv.Key.Sku, kv.Value))
+                .Select(kv => new StockLot(kv.Key.Warehouse, kv.Key.Zone, kv.Key.Bin, kv.Key.Product, kv.Value))
                 .ToList();
     }
 }

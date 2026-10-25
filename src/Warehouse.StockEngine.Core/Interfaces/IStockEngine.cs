@@ -17,6 +17,6 @@ public interface IStockEngine
         int warehouse,
         int zone,
         int bin,
-        long sku,
+        int product,
         CancellationToken cancellationToken = default);
 }

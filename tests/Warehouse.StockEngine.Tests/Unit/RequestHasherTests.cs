@@ -65,7 +65,7 @@ public sealed class RequestHasherTests
         var cmd = new MoveStockCommand(
             TxId,
             DocNo,
-            [new MoveStockLine("L1", 1, FromZone: 10, FromBin: 100, ToZone: 10, ToBin: 200, Sku: 50001, Quantity: 4m)]);
+            [new MoveStockLine("L1", 1, FromZone: 10, FromBin: 100, ToZone: 10, ToBin: 200, Product: 50001, Quantity: 4m)]);
 
         var hash1 = RequestHasher.Hash(cmd);
         var hash2 = RequestHasher.Hash(cmd);
@@ -111,9 +111,9 @@ public sealed class RequestHasherTests
         var diffQty = baseCommand with { Lines = [new InboundStockLine("L1", 1, 10, 100, 50001, 11m)] };
         Assert.NotEqual(baseHash, RequestHasher.Hash(diffQty));
 
-        // Different SKU
-        var diffSku = baseCommand with { Lines = [new InboundStockLine("L1", 1, 10, 100, 99999, 10m)] };
-        Assert.NotEqual(baseHash, RequestHasher.Hash(diffSku));
+        // Different Product
+        var diffProduct = baseCommand with { Lines = [new InboundStockLine("L1", 1, 10, 100, 99999, 10m)] };
+        Assert.NotEqual(baseHash, RequestHasher.Hash(diffProduct));
 
         // Different Location
         var diffLoc = baseCommand with { Lines = [new InboundStockLine("L1", 1, 10, 101, 50001, 10m)] };

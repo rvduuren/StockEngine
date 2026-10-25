@@ -18,7 +18,7 @@ internal static class RequestHasher
               .Append(line.Warehouse).Append(';')
               .Append(line.Zone).Append(';')
               .Append(line.Bin).Append(';')
-              .Append(line.Sku).Append(';')
+              .Append(line.Product).Append(';')
               .Append(FormatDecimal(line.Quantity));
         }
 
@@ -36,7 +36,7 @@ internal static class RequestHasher
               .Append(line.Warehouse).Append(';')
               .Append(line.Zone).Append(';')
               .Append(line.Bin).Append(';')
-              .Append(line.Sku).Append(';')
+              .Append(line.Product).Append(';')
               .Append(FormatDecimal(line.Quantity));
         }
 
@@ -56,7 +56,7 @@ internal static class RequestHasher
               .Append(line.FromBin).Append(';')
               .Append(line.ToZone).Append(';')
               .Append(line.ToBin).Append(';')
-              .Append(line.Sku).Append(';')
+              .Append(line.Product).Append(';')
               .Append(FormatDecimal(line.Quantity));
         }
 
@@ -74,7 +74,7 @@ internal static class RequestHasher
               .Append(line.Warehouse).Append(';')
               .Append(line.Zone).Append(';')
               .Append(line.Bin).Append(';')
-              .Append(line.Sku).Append(';')
+              .Append(line.Product).Append(';')
               .Append(FormatDecimal(line.CountedQuantity)).Append(';')
               .Append(NullSafe(line.ReasonCode));
         }

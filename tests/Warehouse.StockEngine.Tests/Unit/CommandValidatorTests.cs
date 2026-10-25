@@ -18,7 +18,7 @@ public sealed class CommandValidatorTests
         var command = new InboundStockCommand(
             ValidTxId,
             ValidDocNo,
-            [new InboundStockLine(ValidLineId, Warehouse: 1, Zone: 10, Bin: 100, Sku: 12345, Quantity: 10.5m)]);
+            [new InboundStockLine(ValidLineId, Warehouse: 1, Zone: 10, Bin: 100, Product: 12345, Quantity: 10.5m)]);
 
         CommandValidator.Validate(command);
     }
@@ -137,7 +137,7 @@ public sealed class CommandValidatorTests
         var command = new MoveStockCommand(
             ValidTxId,
             ValidDocNo,
-            [new MoveStockLine(ValidLineId, Warehouse: 1, FromZone: 10, FromBin: 100, ToZone: 10, ToBin: 200, Sku: 12345, Quantity: 3m)]);
+            [new MoveStockLine(ValidLineId, Warehouse: 1, FromZone: 10, FromBin: 100, ToZone: 10, ToBin: 200, Product: 12345, Quantity: 3m)]);
 
         CommandValidator.Validate(command);
     }
@@ -148,7 +148,7 @@ public sealed class CommandValidatorTests
         var command = new MoveStockCommand(
             ValidTxId,
             ValidDocNo,
-            [new MoveStockLine(ValidLineId, 1, FromZone: 10, FromBin: 100, ToZone: 10, ToBin: 100, Sku: 12345, Quantity: 3m)]);
+            [new MoveStockLine(ValidLineId, 1, FromZone: 10, FromBin: 100, ToZone: 10, ToBin: 100, Product: 12345, Quantity: 3m)]);
 
         var ex = Assert.Throws<InvalidStockCommandException>(() => CommandValidator.Validate(command));
         Assert.Equal("From and to bin must differ.", ex.Message);
@@ -160,7 +160,7 @@ public sealed class CommandValidatorTests
         var command = new MoveStockCommand(
             ValidTxId,
             ValidDocNo,
-            [new MoveStockLine(ValidLineId, 1, FromZone: 10, FromBin: 100, ToZone: 20, ToBin: 100, Sku: 12345, Quantity: 3m)]);
+            [new MoveStockLine(ValidLineId, 1, FromZone: 10, FromBin: 100, ToZone: 20, ToBin: 100, Product: 12345, Quantity: 3m)]);
 
         CommandValidator.Validate(command);
     }

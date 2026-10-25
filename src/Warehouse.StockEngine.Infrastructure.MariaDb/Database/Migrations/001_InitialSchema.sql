@@ -22,10 +22,10 @@ CREATE TABLE IF NOT EXISTS inventory (
     warehouse   INT            NOT NULL,
     zone        INT            NOT NULL,
     bin         INT            NOT NULL,
-    sku         BIGINT         NOT NULL,
+    product     INT            NOT NULL,
     quantity    DECIMAL(18,4)  NOT NULL DEFAULT 0,
     updated_at  DATETIME(6)    NOT NULL,
-    PRIMARY KEY (warehouse, zone, bin, sku),
+    PRIMARY KEY (warehouse, zone, bin, product),
     CONSTRAINT chk_inventory_quantity_non_negative CHECK (quantity >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS inventory_history (
     warehouse          INT            NOT NULL,
     zone               INT            NOT NULL,
     bin                INT            NOT NULL,
-    sku                BIGINT         NOT NULL,
+    product            INT            NOT NULL,
     quantity_delta     DECIMAL(18,4)  NOT NULL,
     quantity_before    DECIMAL(18,4)  NOT NULL,
     quantity_after     DECIMAL(18,4)  NOT NULL,
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS inventory_history (
     PRIMARY KEY (history_id),
     KEY ix_inventory_history_transaction_id (transaction_id),
     KEY ix_inventory_history_document (document_no, document_line_id),
-    KEY ix_inventory_history_loc (warehouse, zone, bin, sku),
+    KEY ix_inventory_history_loc (warehouse, zone, bin, product),
     KEY ix_inventory_history_created (created_at),
     CONSTRAINT fk_inventory_history_transaction
         FOREIGN KEY (transaction_id) REFERENCES inventory_transaction (transaction_id)

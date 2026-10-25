@@ -16,5 +16,5 @@ public sealed record MoveStockLine(
     int FromBin,
     int ToZone,
     int ToBin,
-    long Sku,
+    int Product,
     decimal Quantity);

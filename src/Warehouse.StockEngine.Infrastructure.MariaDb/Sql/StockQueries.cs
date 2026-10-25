@@ -35,12 +35,12 @@ internal static class StockQueries
     public const string InsertHistory = """
         INSERT INTO inventory_history (
             transaction_id, document_no, document_line_id, movement_type,
-            warehouse, zone, bin, sku,
+            warehouse, zone, bin, product,
             quantity_delta, quantity_before, quantity_after,
             counted_quantity, reason_code, created_at)
         VALUES (
             @TransactionId, @DocumentNo, @DocumentLineId, @MovementType,
-            @Warehouse, @Zone, @Bin, @Sku,
+            @Warehouse, @Zone, @Bin, @Product,
             @QuantityDelta, @QuantityBefore, @QuantityAfter,
             @CountedQuantity, @ReasonCode, UTC_TIMESTAMP(6));
         """;
@@ -51,7 +51,7 @@ internal static class StockQueries
         WHERE warehouse = @Warehouse
           AND zone = @Zone
           AND bin = @Bin
-          AND sku = @Sku;
+          AND product = @Product;
         """;
 
     public const string LockQuantity = """
@@ -60,13 +60,13 @@ internal static class StockQueries
         WHERE warehouse = @Warehouse
           AND zone = @Zone
           AND bin = @Bin
-          AND sku = @Sku
+          AND product = @Product
         FOR UPDATE;
         """;
 
     public const string EnsureInventoryRow = """
-        INSERT INTO inventory (warehouse, zone, bin, sku, quantity, updated_at)
-        VALUES (@Warehouse, @Zone, @Bin, @Sku, 0, UTC_TIMESTAMP(6))
+        INSERT INTO inventory (warehouse, zone, bin, product, quantity, updated_at)
+        VALUES (@Warehouse, @Zone, @Bin, @Product, 0, UTC_TIMESTAMP(6))
         ON DUPLICATE KEY UPDATE warehouse = warehouse;
         """;
 
@@ -77,7 +77,7 @@ internal static class StockQueries
         WHERE warehouse = @Warehouse
           AND zone = @Zone
           AND bin = @Bin
-          AND sku = @Sku;
+          AND product = @Product;
         """;
 
     public const string DecreaseQuantityIfSufficient = """
@@ -87,7 +87,7 @@ internal static class StockQueries
         WHERE warehouse = @Warehouse
           AND zone = @Zone
           AND bin = @Bin
-          AND sku = @Sku
+          AND product = @Product
           AND quantity >= @Quantity;
         """;
 
@@ -98,6 +98,6 @@ internal static class StockQueries
         WHERE warehouse = @Warehouse
           AND zone = @Zone
           AND bin = @Bin
-          AND sku = @Sku;
+          AND product = @Product;
         """;
 }

@@ -15,11 +15,11 @@ public sealed class IdempotencyTests
     public async Task SameTransactionId_SamePayload_IsIdempotent()
     {
         var transactionId = Guid.NewGuid();
-        var sku = UniqueSku();
+        var product = UniqueProduct();
         var command = new InboundStockCommand(
             transactionId,
             "IDEM-001",
-            [new InboundStockLine("1", 1, 50, 500, sku, 9m)]);
+            [new InboundStockLine("1", 1, 50, 500, product, 9m)]);
 
         var first = await _fixture.Engine.InboundAsync(command);
         var second = await _fixture.Engine.InboundAsync(command);
@@ -27,28 +27,28 @@ public sealed class IdempotencyTests
         Assert.False(first.WasAlreadyProcessed);
         Assert.True(second.WasAlreadyProcessed);
         Assert.Equal(first.HistoryRowsWritten, second.HistoryRowsWritten);
-        Assert.Equal(9m, await _fixture.Engine.GetQuantityAsync(1, 50, 500, sku));
+        Assert.Equal(9m, await _fixture.Engine.GetQuantityAsync(1, 50, 500, product));
     }
 
     [Fact]
     public async Task SameTransactionId_DifferentPayload_Throws()
     {
         var transactionId = Guid.NewGuid();
-        var sku = UniqueSku();
+        var product = UniqueProduct();
 
         await _fixture.Engine.InboundAsync(new InboundStockCommand(
             transactionId,
             "CONF-001",
-            [new InboundStockLine("1", 1, 50, 501, sku, 4m)]));
+            [new InboundStockLine("1", 1, 50, 501, product, 4m)]));
 
         await Assert.ThrowsAsync<IdempotencyConflictException>(() =>
             _fixture.Engine.InboundAsync(new InboundStockCommand(
                 transactionId,
                 "CONF-001",
-                [new InboundStockLine("1", 1, 50, 501, sku, 8m)])));
+                [new InboundStockLine("1", 1, 50, 501, product, 8m)])));
 
-        Assert.Equal(4m, await _fixture.Engine.GetQuantityAsync(1, 50, 501, sku));
+        Assert.Equal(4m, await _fixture.Engine.GetQuantityAsync(1, 50, 501, product));
     }
 
-    private static long UniqueSku() => Random.Shared.NextInt64(1_000_000, 9_000_000_000);
+    private static int UniqueProduct() => Random.Shared.Next(20, 30);
 }
