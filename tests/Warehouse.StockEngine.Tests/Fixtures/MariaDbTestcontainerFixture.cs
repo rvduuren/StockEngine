@@ -27,7 +27,10 @@ public sealed class MariaDbTestcontainerFixture : IAsyncLifetime
 
         await _container.StartAsync();
 
-        ConnectionString = _container.GetConnectionString();
+        var baseConnStr = _container.GetConnectionString();
+        ConnectionString = baseConnStr.EndsWith(';')
+            ? $"{baseConnStr}MaximumPoolSize=300;ConnectionTimeout=30;"
+            : $"{baseConnStr};MaximumPoolSize=300;ConnectionTimeout=30;";
         ConnectionFactory = new MariaDbConnectionFactory(ConnectionString);
 
         IDatabaseMigrator migrator = new MariaDbDatabaseMigrator(ConnectionFactory);
