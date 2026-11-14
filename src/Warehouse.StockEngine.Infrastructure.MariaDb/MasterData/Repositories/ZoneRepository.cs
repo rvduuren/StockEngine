@@ -1,5 +1,6 @@
 ﻿namespace Warehouse.StockEngine.Infrastructure.MariaDb.MasterData.Repositories;
 
+// Repository behaviour is intentionally deferred to subsequent tickets.
 public class ZoneRepository(IDbConnectionFactory connectionFactory)
     : MariaDbRepositoryBase(connectionFactory), IZoneRepository
 {

@@ -30,6 +30,8 @@ public static class StockEngineServiceCollectionExtensions
 
         services.TryAddScoped<IMasterDataRepository<Product>, ProductRepository>();
         services.TryAddScoped<IMasterDataRepository<Core.MasterData.Entities.Warehouse>, WarehouseRepository>();
+        services.TryAddScoped<IMasterDataRepository<Zone>, ZoneRepository>();
+        services.TryAddScoped<IMasterDataRepository<Bin>, BinRepository>();
         services.TryAddScoped<IZoneRepository, ZoneRepository>();
         services.TryAddScoped<IBinRepository, BinRepository>();
 

@@ -42,6 +42,8 @@ public sealed class MasterDataHarnessTests
         Assert.IsType<WarehouseRepository>(
             provider.GetRequiredService<IMasterDataRepository<Core.MasterData.Entities.Warehouse>>());
         Assert.IsType<ProductRepository>(provider.GetRequiredService<IMasterDataRepository<Product>>());
+        Assert.IsType<ZoneRepository>(provider.GetRequiredService<IMasterDataRepository<Zone>>());
+        Assert.IsType<BinRepository>(provider.GetRequiredService<IMasterDataRepository<Bin>>());
         Assert.IsType<ZoneRepository>(provider.GetRequiredService<IZoneRepository>());
         Assert.IsType<BinRepository>(provider.GetRequiredService<IBinRepository>());
     }

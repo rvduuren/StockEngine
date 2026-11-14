@@ -134,6 +134,8 @@ public sealed class DependencyInjectionTests
 
         Assert.NotNull(scoped.GetService<IMasterDataRepository<Core.MasterData.Entities.Warehouse>>());
         Assert.NotNull(scoped.GetService<IMasterDataRepository<Product>>());
+        Assert.NotNull(scoped.GetService<IMasterDataRepository<Zone>>());
+        Assert.NotNull(scoped.GetService<IMasterDataRepository<Bin>>());
         Assert.NotNull(scoped.GetService<IZoneRepository>());
         Assert.NotNull(scoped.GetService<IBinRepository>());
     }
