@@ -1,7 +1,7 @@
 ﻿namespace Warehouse.StockEngine.Infrastructure.MariaDb.MasterData.Repositories;
 
 public class BinRepository(IDbConnectionFactory connectionFactory)
-    : MariaDbRepositoryBase(connectionFactory), IMasterDataRepository<Bin>
+    : MariaDbRepositoryBase(connectionFactory), IBinRepository
 {
     public Task<Bin?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
@@ -9,6 +9,11 @@ public class BinRepository(IDbConnectionFactory connectionFactory)
     }
 
     public Task<Bin?> GetByCodeAsync(string code, CancellationToken cancellationToken = default)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<Bin?> GetByCodeAsync(int zoneId, string code, CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }

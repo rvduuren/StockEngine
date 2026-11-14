@@ -1,7 +1,7 @@
 ﻿namespace Warehouse.StockEngine.Infrastructure.MariaDb.MasterData.Repositories;
 
-public class ZoneRepository (IDbConnectionFactory connectionFactory)
-    : MariaDbRepositoryBase(connectionFactory), IMasterDataRepository<Zone>
+public class ZoneRepository(IDbConnectionFactory connectionFactory)
+    : MariaDbRepositoryBase(connectionFactory), IZoneRepository
 {
     public Task<Zone?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
@@ -9,6 +9,11 @@ public class ZoneRepository (IDbConnectionFactory connectionFactory)
     }
 
     public Task<Zone?> GetByCodeAsync(string code, CancellationToken cancellationToken = default)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<Zone?> GetByCodeAsync(int warehouseId, string code, CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }

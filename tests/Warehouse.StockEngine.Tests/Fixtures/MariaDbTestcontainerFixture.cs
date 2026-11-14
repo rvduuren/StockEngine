@@ -1,6 +1,8 @@
+using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.MariaDb;
 using Warehouse.StockEngine.Core.Interfaces;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Database;
+using Warehouse.StockEngine.Infrastructure.MariaDb.DependencyInjection;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Execution;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Factories;
 using Xunit;
@@ -17,6 +19,8 @@ public sealed class MariaDbTestcontainerFixture : IAsyncLifetime
 
     public IStockEngine Engine { get; private set; } = null!;
 
+    public ServiceProvider Services { get; private set; } = null!;
+
     public async Task InitializeAsync()
     {
         _container = new MariaDbBuilder("mariadb:11.4")
@@ -31,7 +35,12 @@ public sealed class MariaDbTestcontainerFixture : IAsyncLifetime
         ConnectionString = baseConnStr.EndsWith(';')
             ? $"{baseConnStr}MaximumPoolSize=300;ConnectionTimeout=30;"
             : $"{baseConnStr};MaximumPoolSize=300;ConnectionTimeout=30;";
-        ConnectionFactory = new MariaDbConnectionFactory(ConnectionString);
+
+        var services = new ServiceCollection();
+        services.AddMariaDbStockEngine(ConnectionString);
+        Services = services.BuildServiceProvider();
+
+        ConnectionFactory = Services.GetRequiredService<IDbConnectionFactory>();
 
         IDatabaseMigrator migrator = new MariaDbDatabaseMigrator(ConnectionFactory);
         await migrator.MigrateAsync();
@@ -41,6 +50,11 @@ public sealed class MariaDbTestcontainerFixture : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
+        if (Services is not null)
+        {
+            await Services.DisposeAsync();
+        }
+
         if (_container is not null)
         {
             await _container.DisposeAsync();

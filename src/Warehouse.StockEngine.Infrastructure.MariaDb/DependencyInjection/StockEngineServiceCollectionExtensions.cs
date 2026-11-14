@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Warehouse.StockEngine.Core.MasterData.Interfaces;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Database;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Execution;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Factories;
@@ -29,14 +30,8 @@ public static class StockEngineServiceCollectionExtensions
 
         services.TryAddScoped<IMasterDataRepository<Product>, ProductRepository>();
         services.TryAddScoped<IMasterDataRepository<Core.MasterData.Entities.Warehouse>, WarehouseRepository>();
-        //
-        // services.TryAddScoped<
-        //     IMasterDataRepository<Zone>,
-        //     ZoneRepository>();
-        //
-        // services.TryAddScoped<
-        //     IMasterDataRepository<Bin>,
-        //     BinRepository>();
+        services.TryAddScoped<IZoneRepository, ZoneRepository>();
+        services.TryAddScoped<IBinRepository, BinRepository>();
 
         return services.AddMariaDbStockEngine(_ => connectionString, engineLifetime);
     }
