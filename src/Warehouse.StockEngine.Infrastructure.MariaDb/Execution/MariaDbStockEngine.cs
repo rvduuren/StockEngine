@@ -4,7 +4,6 @@ using MySqlConnector;
 using Warehouse.StockEngine.Core.Commands;
 using Warehouse.StockEngine.Core.Enums;
 using Warehouse.StockEngine.Core.Exceptions;
-using Warehouse.StockEngine.Core.Interfaces;
 using Warehouse.StockEngine.Core.Models;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Sql;
 

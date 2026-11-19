@@ -1,6 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Warehouse.StockEngine.Core.Interfaces;
+using Warehouse.StockEngine.Core.MasterData.Entities;
+using Warehouse.StockEngine.Core.MasterData.Interfaces;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Database;
+using Warehouse.StockEngine.Infrastructure.MariaDb.DependencyInjection;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Execution;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Factories;
 
@@ -60,6 +63,10 @@ public sealed class DependencyInjectionTests
         var connectionFactory = provider.GetRequiredService<IDbConnectionFactory>();
         Assert.True(factoryInvoked);
         Assert.NotNull(connectionFactory);
+
+        using var scope = provider.CreateScope();
+        Assert.NotNull(scope.ServiceProvider.GetService<IMasterDataRepository<Product>>());
+        Assert.NotNull(scope.ServiceProvider.GetService<IZoneRepository>());
     }
 
     [Fact]
@@ -117,6 +124,24 @@ public sealed class DependencyInjectionTests
 
         Assert.Throws<ArgumentNullException>(() =>
             services.AddMariaDbStockEngine((Func<IServiceProvider, string>)null!));
+    }
+
+    [Fact]
+    public void AddMariaDbStockEngine_RegistersMasterDataRepositoryPorts()
+    {
+        var services = new ServiceCollection();
+        services.AddMariaDbStockEngine(DummyConnectionString);
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var scoped = scope.ServiceProvider;
+
+        Assert.NotNull(scoped.GetService<IMasterDataRepository<Core.MasterData.Entities.Warehouse>>());
+        Assert.NotNull(scoped.GetService<IMasterDataRepository<Product>>());
+        Assert.NotNull(scoped.GetService<IMasterDataRepository<Zone>>());
+        Assert.NotNull(scoped.GetService<IMasterDataRepository<Bin>>());
+        Assert.NotNull(scoped.GetService<IZoneRepository>());
+        Assert.NotNull(scoped.GetService<IBinRepository>());
     }
 
     [Fact]

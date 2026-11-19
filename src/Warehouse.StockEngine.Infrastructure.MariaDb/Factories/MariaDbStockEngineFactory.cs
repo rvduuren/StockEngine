@@ -1,4 +1,3 @@
-using Warehouse.StockEngine.Core.Interfaces;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Execution;
 
 namespace Warehouse.StockEngine.Infrastructure.MariaDb.Factories;

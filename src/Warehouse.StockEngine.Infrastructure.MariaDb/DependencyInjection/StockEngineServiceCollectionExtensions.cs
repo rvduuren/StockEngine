@@ -1,10 +1,12 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Warehouse.StockEngine.Core.Interfaces;
+using Warehouse.StockEngine.Core.MasterData.Interfaces;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Database;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Execution;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Factories;
+using Warehouse.StockEngine.Infrastructure.MariaDb.MasterData.Repositories;
 
-namespace Microsoft.Extensions.DependencyInjection;
+namespace Warehouse.StockEngine.Infrastructure.MariaDb.DependencyInjection;
 
 /// <summary>
 /// Extension methods for configuring Warehouse Stock Engine services in an <see cref="IServiceCollection"/>.
@@ -55,8 +57,22 @@ public static class StockEngineServiceCollectionExtensions
         services.TryAddTransient<IDatabaseMigrator, MariaDbDatabaseMigrator>();
         services.TryAddSingleton<IStockEngineFactory, MariaDbStockEngineFactory>();
 
-        services.TryAdd(ServiceDescriptor.Describe(typeof(MariaDbStockEngine), typeof(MariaDbStockEngine), engineLifetime));
-        services.TryAdd(ServiceDescriptor.Describe(typeof(IStockEngine), sp => sp.GetRequiredService<MariaDbStockEngine>(), engineLifetime));
+        services.TryAdd(ServiceDescriptor.Describe(typeof(MariaDbStockEngine), typeof(MariaDbStockEngine),
+            engineLifetime));
+        services.TryAdd(ServiceDescriptor.Describe(typeof(IStockEngine),
+            sp => sp.GetRequiredService<MariaDbStockEngine>(), engineLifetime));
+
+        return services.AddMasterDataRepositories();
+    }
+
+    private static IServiceCollection AddMasterDataRepositories(this IServiceCollection services)
+    {
+        services.TryAddScoped<IMasterDataRepository<Product>, ProductRepository>();
+        services.TryAddScoped<IMasterDataRepository<Core.MasterData.Entities.Warehouse>, WarehouseRepository>();
+        services.TryAddScoped<IMasterDataRepository<Zone>, ZoneRepository>();
+        services.TryAddScoped<IMasterDataRepository<Bin>, BinRepository>();
+        services.TryAddScoped<IZoneRepository, ZoneRepository>();
+        services.TryAddScoped<IBinRepository, BinRepository>();
 
         return services;
     }
