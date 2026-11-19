@@ -284,6 +284,72 @@ public sealed class MariaDbReceiptWorkflow(
         return result;
     }
 
+    public async Task<ReceiptDetail> CloseReceiptAsync(
+        CloseReceiptRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (request.ReceiptId == Guid.Empty)
+        {
+            throw new ReceiptWorkflowValidationException("Receipt id is required.");
+        }
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+            var header = await connection.QueryFirstOrDefaultAsync<ReceiptHeaderRow>(new CommandDefinition(
+                """
+                SELECT receipt_id AS ReceiptId,
+                       warehouse_id AS WarehouseId,
+                       document_no AS DocumentNo,
+                       status AS Status,
+                       created_at AS CreatedAt
+                FROM receipt
+                WHERE receipt_id = @ReceiptId
+                FOR UPDATE;
+                """,
+                new { ReceiptId = request.ReceiptId.ToString() },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            if (header is null)
+            {
+                throw new ReceiptNotFoundException($"Receipt {request.ReceiptId} was not found.");
+            }
+
+            if (header.Status != StatusOpen)
+            {
+                throw new ReceiptClosedException(header.ReceiptId);
+            }
+
+            await connection.ExecuteAsync(new CommandDefinition(
+                """
+                UPDATE receipt
+                SET status = @Status
+                WHERE receipt_id = @ReceiptId;
+                """,
+                new
+                {
+                    ReceiptId = request.ReceiptId.ToString(),
+                    Status = StatusClosed
+                },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+
+        return (await GetReceiptByIdAsync(request.ReceiptId, cancellationToken))!;
+    }
+
     private async Task<ConfirmReceiveResult> ConfirmReceiveInTransactionAsync(
         ConfirmReceiveRequest request,
         DbConnection connection,

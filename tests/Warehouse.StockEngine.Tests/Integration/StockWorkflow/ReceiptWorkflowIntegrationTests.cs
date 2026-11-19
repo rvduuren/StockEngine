@@ -354,6 +354,63 @@ public sealed class ReceiptWorkflowIntegrationTests
     }
 
     [Fact]
+    public async Task CloseReceipt_Open_TransitionsToClosedAndExcludesFromOpenList()
+    {
+        var ctx = await SeedWarehouseWithStagingLocationAsync();
+        using var scope = _fixture.Services.CreateScope();
+        var workflow = ResolveWorkflow(scope);
+        var receipt = await ConfigureStagingAndCreateReceipt(workflow, ctx);
+
+        var closed = await workflow.CloseReceiptAsync(new CloseReceiptRequest { ReceiptId = receipt.ReceiptId });
+
+        Assert.Equal(ReceiptStatus.Closed, closed.Status);
+        var loaded = await workflow.GetReceiptByIdAsync(receipt.ReceiptId);
+        Assert.NotNull(loaded);
+        Assert.Equal(ReceiptStatus.Closed, loaded.Status);
+
+        var open = await workflow.ListOpenReceiptsAsync(ctx.WarehouseId);
+        Assert.DoesNotContain(open, r => r.ReceiptId == receipt.ReceiptId);
+    }
+
+    [Fact]
+    public async Task CloseReceipt_ShortClose_AllowedWhenReceivedLessThanExpected()
+    {
+        var ctx = await SeedWarehouseWithStagingLocationAsync();
+        using var scope = _fixture.Services.CreateScope();
+        var workflow = ResolveWorkflow(scope);
+        var receipt = await ConfigureStagingAndCreateReceipt(workflow, ctx);
+
+        await workflow.ConfirmReceiveAsync(new ConfirmReceiveRequest
+        {
+            ReceiptId = receipt.ReceiptId,
+            LineId = "1",
+            Quantity = 3m,
+            ConfirmId = Guid.NewGuid()
+        });
+
+        var closed = await workflow.CloseReceiptAsync(new CloseReceiptRequest { ReceiptId = receipt.ReceiptId });
+
+        Assert.Equal(ReceiptStatus.Closed, closed.Status);
+        var line = closed.Lines.Single(l => l.LineId == "1");
+        Assert.Equal(3m, line.ReceivedQuantity);
+        Assert.Equal(7m, line.RemainingQuantity);
+    }
+
+    [Fact]
+    public async Task CloseReceipt_AlreadyClosed_Throws()
+    {
+        var ctx = await SeedWarehouseWithStagingLocationAsync();
+        using var scope = _fixture.Services.CreateScope();
+        var workflow = ResolveWorkflow(scope);
+        var receipt = await ConfigureStagingAndCreateReceipt(workflow, ctx);
+
+        await workflow.CloseReceiptAsync(new CloseReceiptRequest { ReceiptId = receipt.ReceiptId });
+
+        await Assert.ThrowsAsync<ReceiptClosedException>(() =>
+            workflow.CloseReceiptAsync(new CloseReceiptRequest { ReceiptId = receipt.ReceiptId }));
+    }
+
+    [Fact]
     public async Task ConfirmReceive_OnClosedReceipt_Throws()
     {
         var ctx = await SeedWarehouseWithStagingLocationAsync();
@@ -361,7 +418,7 @@ public sealed class ReceiptWorkflowIntegrationTests
         var workflow = ResolveWorkflow(scope);
         var receipt = await ConfigureStagingAndCreateReceipt(workflow, ctx);
 
-        await CloseReceiptDirectAsync(receipt.ReceiptId);
+        await workflow.CloseReceiptAsync(new CloseReceiptRequest { ReceiptId = receipt.ReceiptId });
 
         await Assert.ThrowsAsync<ReceiptClosedException>(() =>
             workflow.ConfirmReceiveAsync(new ConfirmReceiveRequest
@@ -371,6 +428,42 @@ public sealed class ReceiptWorkflowIntegrationTests
                 Quantity = 1m,
                 ConfirmId = Guid.NewGuid()
             }));
+    }
+
+    [Fact]
+    public async Task ConfirmReceive_AuditFields_PersistOnEngineTransaction()
+    {
+        var ctx = await SeedWarehouseWithStagingLocationAsync();
+        using var scope = _fixture.Services.CreateScope();
+        var workflow = ResolveWorkflow(scope);
+        var receipt = await ConfigureStagingAndCreateReceipt(workflow, ctx);
+
+        var result = await workflow.ConfirmReceiveAsync(new ConfirmReceiveRequest
+        {
+            ReceiptId = receipt.ReceiptId,
+            LineId = "1",
+            Quantity = 2m,
+            ConfirmId = Guid.NewGuid(),
+            Source = "RF",
+            UserId = "op-42",
+            DeviceId = "scanner-7",
+            ReasonCode = "RECV-AUDIT"
+        });
+
+        await using var connection = _fixture.ConnectionFactory.CreateConnection();
+        await connection.OpenAsync();
+        var txn = await connection.QuerySingleAsync<(string? Source, string? UserId, string? DeviceId, string? ReasonCode)>(
+            """
+            SELECT source AS Source, user_id AS UserId, device_id AS DeviceId, reason_code AS ReasonCode
+            FROM inventory_transaction
+            WHERE transaction_id = @TransactionId;
+            """,
+            new { TransactionId = result.EngineTransactionId.ToString() });
+
+        Assert.Equal("RF", txn.Source);
+        Assert.Equal("op-42", txn.UserId);
+        Assert.Equal("scanner-7", txn.DeviceId);
+        Assert.Equal("RECV-AUDIT", txn.ReasonCode);
     }
 
     [Fact]
@@ -445,15 +538,6 @@ public sealed class ReceiptWorkflowIntegrationTests
             DocumentNo = UniqueCode("DOC"),
             Lines = [Line(ctx.ProductId, "1", 10m)]
         });
-    }
-
-    private async Task CloseReceiptDirectAsync(Guid receiptId)
-    {
-        await using var connection = _fixture.ConnectionFactory.CreateConnection();
-        await connection.OpenAsync();
-        await connection.ExecuteAsync(
-            "UPDATE receipt SET status = 'CLOSED' WHERE receipt_id = @ReceiptId",
-            new { ReceiptId = receiptId.ToString() });
     }
 
     private async Task<SeedContext> SeedWarehouseWithStagingLocationAsync()
