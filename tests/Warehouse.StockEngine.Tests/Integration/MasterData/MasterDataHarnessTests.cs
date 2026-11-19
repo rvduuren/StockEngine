@@ -3,7 +3,9 @@ using Warehouse.StockEngine.Core.Interfaces;
 using Warehouse.StockEngine.Core.MasterData.Entities;
 using Warehouse.StockEngine.Core.MasterData.Interfaces;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Factories;
+using Warehouse.StockEngine.Core.StockWorkflow.Receipt.Interfaces;
 using Warehouse.StockEngine.Infrastructure.MariaDb.MasterData.Repositories;
+using Warehouse.StockEngine.Infrastructure.MariaDb.StockWorkflow.Receipt;
 using Warehouse.StockEngine.Tests.Fixtures;
 
 namespace Warehouse.StockEngine.Tests.Integration.MasterData;
@@ -46,5 +48,12 @@ public sealed class MasterDataHarnessTests
         Assert.IsType<BinRepository>(provider.GetRequiredService<IMasterDataRepository<Bin>>());
         Assert.IsType<ZoneRepository>(provider.GetRequiredService<IZoneRepository>());
         Assert.IsType<BinRepository>(provider.GetRequiredService<IBinRepository>());
+    }
+
+    [Fact]
+    public void Fixture_ServiceProvider_ResolvesReceiptWorkflow()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        Assert.IsType<MariaDbReceiptWorkflow>(scope.ServiceProvider.GetRequiredService<IReceiptWorkflow>());
     }
 }
