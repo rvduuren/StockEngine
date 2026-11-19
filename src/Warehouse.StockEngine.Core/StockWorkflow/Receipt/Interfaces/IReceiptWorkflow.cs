@@ -3,7 +3,7 @@ using Warehouse.StockEngine.Core.StockWorkflow.Receipt.Models;
 namespace Warehouse.StockEngine.Core.StockWorkflow.Receipt.Interfaces;
 
 /// <summary>
-/// Stock-workflow façade for receipt document lifecycle (v1: staging, create/query, confirm receive).
+/// Stock-workflow façade for receipt document lifecycle (v1: staging, create/query, confirm receive, close).
 /// </summary>
 public interface IReceiptWorkflow
 {
@@ -34,5 +34,9 @@ public interface IReceiptWorkflow
 
     Task<ConfirmReceiveResult> ConfirmReceiveAsync(
         ConfirmReceiveRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<ReceiptDetail> CloseReceiptAsync(
+        CloseReceiptRequest request,
         CancellationToken cancellationToken = default);
 }
