@@ -16,6 +16,7 @@ public sealed class MariaDbDatabaseMigratorTests
         Assert.NotEmpty(migrations);
         Assert.Contains(migrations, m => m.Version == "001_InitialSchema");
         Assert.Contains(migrations, m => m.Version == "002_ReceiptWorkflow");
+        Assert.Contains(migrations, m => m.Version == "003_ReceiptConfirm");
     }
 
     [Theory]

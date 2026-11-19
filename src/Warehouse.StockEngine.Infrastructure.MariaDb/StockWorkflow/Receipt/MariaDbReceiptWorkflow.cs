@@ -1,6 +1,7 @@
 using System.Data.Common;
 using Dapper;
 using MySqlConnector;
+using Warehouse.StockEngine.Core.Commands;
 using Warehouse.StockEngine.Core.Interfaces;
 using Warehouse.StockEngine.Core.MasterData.Interfaces;
 using Warehouse.StockEngine.Core.StockWorkflow.Receipt.Enums;
@@ -12,6 +13,7 @@ namespace Warehouse.StockEngine.Infrastructure.MariaDb.StockWorkflow.Receipt;
 
 public sealed class MariaDbReceiptWorkflow(
     IDbConnectionFactory connectionFactory,
+    IStockEngine stockEngine,
     IMasterDataRepository<Core.MasterData.Entities.Warehouse> warehouses,
     IMasterDataRepository<Core.MasterData.Entities.Product> products,
     IZoneRepository zones,
@@ -257,6 +259,295 @@ public sealed class MariaDbReceiptWorkflow(
         return rows.Select(MapSummary).ToList();
     }
 
+    public async Task<ConfirmReceiveResult> ConfirmReceiveAsync(
+        ConfirmReceiveRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ValidateConfirmRequestShape(request);
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        ConfirmReceiveResult result;
+        try
+        {
+            result = await ConfirmReceiveInTransactionAsync(request, connection, transaction, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+
+        return result;
+    }
+
+    private async Task<ConfirmReceiveResult> ConfirmReceiveInTransactionAsync(
+        ConfirmReceiveRequest request,
+        DbConnection connection,
+        DbTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        var existingConfirm = await connection.QueryFirstOrDefaultAsync<ReceiptConfirmRow>(new CommandDefinition(
+            """
+            SELECT rc.confirm_id AS ConfirmId,
+                   rc.engine_transaction_id AS EngineTransactionId,
+                   rc.qty AS Quantity,
+                   rl.line_id AS LineId,
+                   rl.receipt_id AS ReceiptId
+            FROM receipt_confirm rc
+            INNER JOIN receipt_line rl ON rl.receipt_line_id = rc.receipt_line_id
+            WHERE rc.confirm_id = @ConfirmId;
+            """,
+            new { ConfirmId = request.ConfirmId.ToString() },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (existingConfirm is not null)
+        {
+            if (existingConfirm.ReceiptId != request.ReceiptId
+                || !string.Equals(existingConfirm.LineId, request.LineId, StringComparison.Ordinal)
+                || existingConfirm.Quantity != request.Quantity)
+            {
+                throw new ReceiptWorkflowValidationException(
+                    $"Confirm id {request.ConfirmId} was already used with different receipt, line, or quantity.");
+            }
+
+            var idempotentReceipt = await LoadReceiptDetailInTransactionAsync(
+                connection,
+                transaction,
+                request.ReceiptId,
+                cancellationToken);
+
+            if (idempotentReceipt is null)
+            {
+                throw new ReceiptNotFoundException($"Receipt {request.ReceiptId} was not found.");
+            }
+
+            return MapConfirmResult(
+                request.ConfirmId,
+                existingConfirm.EngineTransactionId,
+                existingConfirm.Quantity,
+                existingConfirm.LineId,
+                idempotentReceipt);
+        }
+
+        var header = await connection.QueryFirstOrDefaultAsync<ReceiptHeaderRow>(new CommandDefinition(
+            """
+            SELECT receipt_id AS ReceiptId,
+                   warehouse_id AS WarehouseId,
+                   document_no AS DocumentNo,
+                   status AS Status,
+                   created_at AS CreatedAt
+            FROM receipt
+            WHERE receipt_id = @ReceiptId
+            FOR UPDATE;
+            """,
+            new { ReceiptId = request.ReceiptId.ToString() },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (header is null)
+        {
+            throw new ReceiptNotFoundException($"Receipt {request.ReceiptId} was not found.");
+        }
+
+        if (header.Status != StatusOpen)
+        {
+            throw new ReceiptClosedException(header.ReceiptId);
+        }
+
+        var staging = await connection.QueryFirstOrDefaultAsync<ReceivingStagingConfig>(new CommandDefinition(
+            """
+            SELECT warehouse_id AS WarehouseId, zone_id AS ZoneId, bin_id AS BinId
+            FROM receiving_staging_config
+            WHERE warehouse_id = @WarehouseId;
+            """,
+            new { WarehouseId = header.WarehouseId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (staging is null)
+        {
+            throw new ReceivingStagingNotConfiguredException(header.WarehouseId);
+        }
+
+        var lineRow = await connection.QueryFirstOrDefaultAsync<ReceiptLineLockRow>(new CommandDefinition(
+            """
+            SELECT receipt_line_id AS ReceiptLineId,
+                   line_id AS LineId,
+                   product_id AS ProductId,
+                   expected_qty AS ExpectedQuantity,
+                   received_qty AS ReceivedQuantity
+            FROM receipt_line
+            WHERE receipt_id = @ReceiptId AND line_id = @LineId
+            FOR UPDATE;
+            """,
+            new { ReceiptId = request.ReceiptId.ToString(), request.LineId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (lineRow is null)
+        {
+            throw new ReceiptWorkflowValidationException(
+                $"Line '{request.LineId}' was not found on receipt {request.ReceiptId}.");
+        }
+
+        var remaining = lineRow.ExpectedQuantity - lineRow.ReceivedQuantity;
+        if (request.Quantity > remaining)
+        {
+            throw new OverReceiptException(request.LineId, remaining, request.Quantity);
+        }
+
+        var engineTransactionId = Guid.NewGuid();
+        var confirmedAt = DateTime.UtcNow;
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE receipt_line
+            SET received_qty = received_qty + @Quantity
+            WHERE receipt_line_id = @ReceiptLineId;
+            """,
+            new
+            {
+                ReceiptLineId = lineRow.ReceiptLineId.ToString(),
+                request.Quantity
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO receipt_confirm
+                (confirm_id, receipt_line_id, engine_transaction_id, qty, confirmed_at)
+            VALUES (@ConfirmId, @ReceiptLineId, @EngineTransactionId, @Quantity, @ConfirmedAt);
+            """,
+            new
+            {
+                ConfirmId = request.ConfirmId.ToString(),
+                ReceiptLineId = lineRow.ReceiptLineId.ToString(),
+                EngineTransactionId = engineTransactionId.ToString(),
+                request.Quantity,
+                ConfirmedAt = confirmedAt
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        var inboundCommand = new InboundStockCommand(
+            engineTransactionId,
+            header.DocumentNo,
+            [
+                new InboundStockLine(
+                    request.LineId,
+                    staging.WarehouseId,
+                    staging.ZoneId,
+                    staging.BinId,
+                    lineRow.ProductId,
+                    request.Quantity)
+            ],
+            request.Source,
+            request.UserId,
+            request.DeviceId,
+            request.ReasonCode);
+
+        await stockEngine.InboundAsync(inboundCommand, connection, transaction, cancellationToken);
+
+        var updatedReceipt = await LoadReceiptDetailInTransactionAsync(
+            connection,
+            transaction,
+            request.ReceiptId,
+            cancellationToken);
+
+        return MapConfirmResult(
+            request.ConfirmId,
+            engineTransactionId,
+            request.Quantity,
+            request.LineId,
+            updatedReceipt!);
+    }
+
+    private static ConfirmReceiveResult MapConfirmResult(
+        Guid confirmId,
+        Guid engineTransactionId,
+        decimal quantity,
+        string lineId,
+        ReceiptDetail receipt) =>
+        new()
+        {
+            ConfirmId = confirmId,
+            EngineTransactionId = engineTransactionId,
+            ConfirmedQuantity = quantity,
+            LineId = lineId,
+            Receipt = receipt
+        };
+
+    private static void ValidateConfirmRequestShape(ConfirmReceiveRequest request)
+    {
+        if (request.ConfirmId == Guid.Empty)
+        {
+            throw new ReceiptWorkflowValidationException("Confirm id is required.");
+        }
+
+        if (request.ReceiptId == Guid.Empty)
+        {
+            throw new ReceiptWorkflowValidationException("Receipt id is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.LineId))
+        {
+            throw new ReceiptWorkflowValidationException("Line id is required.");
+        }
+
+        if (request.Quantity <= 0)
+        {
+            throw new ReceiptWorkflowValidationException("Confirm quantity must be positive.");
+        }
+    }
+
+    private static async Task<ReceiptDetail?> LoadReceiptDetailInTransactionAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        Guid receiptId,
+        CancellationToken cancellationToken)
+    {
+        var header = await connection.QueryFirstOrDefaultAsync<ReceiptHeaderRow>(new CommandDefinition(
+            """
+            SELECT receipt_id AS ReceiptId,
+                   warehouse_id AS WarehouseId,
+                   document_no AS DocumentNo,
+                   status AS Status,
+                   created_at AS CreatedAt
+            FROM receipt
+            WHERE receipt_id = @ReceiptId;
+            """,
+            new { ReceiptId = receiptId.ToString() },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (header is null)
+        {
+            return null;
+        }
+
+        var lines = await connection.QueryAsync<ReceiptLineRow>(new CommandDefinition(
+            """
+            SELECT line_id AS LineId,
+                   product_id AS ProductId,
+                   expected_qty AS ExpectedQuantity,
+                   received_qty AS ReceivedQuantity
+            FROM receipt_line
+            WHERE receipt_id = @ReceiptId
+            ORDER BY line_id;
+            """,
+            new { ReceiptId = receiptId.ToString() },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        return MapDetail(header, lines.ToList());
+    }
+
     private async Task ValidateStagingLocationAsync(
         int warehouseId,
         int zoneId,
@@ -418,5 +709,23 @@ public sealed class MariaDbReceiptWorkflow(
         public int ProductId { get; init; }
         public decimal ExpectedQuantity { get; init; }
         public decimal ReceivedQuantity { get; init; }
+    }
+
+    private sealed class ReceiptLineLockRow
+    {
+        public Guid ReceiptLineId { get; init; }
+        public string LineId { get; init; } = string.Empty;
+        public int ProductId { get; init; }
+        public decimal ExpectedQuantity { get; init; }
+        public decimal ReceivedQuantity { get; init; }
+    }
+
+    private sealed class ReceiptConfirmRow
+    {
+        public Guid ConfirmId { get; init; }
+        public Guid EngineTransactionId { get; init; }
+        public decimal Quantity { get; init; }
+        public string LineId { get; init; } = string.Empty;
+        public Guid ReceiptId { get; init; }
     }
 }
