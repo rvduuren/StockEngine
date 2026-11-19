@@ -200,6 +200,15 @@ public sealed class MasterDataRepositoryIntegrationTests
         await Assert.ThrowsAsync<MySqlException>(() =>
             bins.CreateAsync(new Bin { ZoneId = zoneA, Code = sharedBinCode, Name = "Dup bin" }));
 
+        var paged = await bins.SearchAsync(new MasterDataSearchRequest
+        {
+            ZoneId = zoneA,
+            Page = 1,
+            PageSize = 10,
+        });
+        Assert.True(paged.TotalCount >= 1);
+        Assert.All(paged.Items, b => Assert.Equal(zoneA, b.ZoneId));
+
         Assert.True(await bins.DeleteAsync(binA));
         Assert.True(await zones.DeleteAsync(zoneA));
     }

@@ -32,6 +32,8 @@ public sealed class ZoneRepository(IDbConnectionFactory connectionFactory)
             cancellationToken: cancellationToken);
     }
 
+    /// <inheritdoc/>
+    /// <remarks>Non-deterministic first match when <paramref name="code"/> repeats across warehouses; use the warehouse-scoped overload.</remarks>
     public async Task<Zone?> GetByCodeAsync(string code, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(code);

@@ -30,6 +30,8 @@ public sealed class BinRepository(IDbConnectionFactory connectionFactory)
             cancellationToken: cancellationToken);
     }
 
+    /// <inheritdoc/>
+    /// <remarks>Non-deterministic first match when <paramref name="code"/> repeats across zones; use the zone-scoped overload.</remarks>
     public async Task<Bin?> GetByCodeAsync(string code, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(code);

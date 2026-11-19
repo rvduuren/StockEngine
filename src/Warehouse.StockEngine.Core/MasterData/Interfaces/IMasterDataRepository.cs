@@ -10,6 +10,12 @@ public interface IMasterDataRepository<TEntity>
         int id,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Looks up an entity by globally unique <paramref name="code"/> (warehouse, product).
+    /// For hierarchical entities (<see cref="Zone"/>, <see cref="Bin"/>), prefer the scoped
+    /// overloads on <see cref="IZoneRepository"/> / <see cref="IBinRepository"/>; the inherited
+    /// unscoped method is non-deterministic when the same code exists under different parents.
+    /// </summary>
     Task<TEntity?> GetByCodeAsync(
         string code,
         CancellationToken cancellationToken = default);
