@@ -5,7 +5,9 @@ using Warehouse.StockEngine.Core.MasterData.Interfaces;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Database;
 using Warehouse.StockEngine.Infrastructure.MariaDb.DependencyInjection;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Execution;
+using Warehouse.StockEngine.Core.StockWorkflow.Receipt.Interfaces;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Factories;
+using Warehouse.StockEngine.Infrastructure.MariaDb.StockWorkflow.Receipt;
 
 namespace Warehouse.StockEngine.Tests.Unit;
 
@@ -142,6 +144,18 @@ public sealed class DependencyInjectionTests
         Assert.NotNull(scoped.GetService<IMasterDataRepository<Bin>>());
         Assert.NotNull(scoped.GetService<IZoneRepository>());
         Assert.NotNull(scoped.GetService<IBinRepository>());
+    }
+
+    [Fact]
+    public void AddMariaDbStockEngine_RegistersReceiptWorkflow()
+    {
+        var services = new ServiceCollection();
+        services.AddMariaDbStockEngine(DummyConnectionString);
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+
+        Assert.IsType<MariaDbReceiptWorkflow>(scope.ServiceProvider.GetRequiredService<IReceiptWorkflow>());
     }
 
     [Fact]

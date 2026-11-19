@@ -4,7 +4,9 @@ using Warehouse.StockEngine.Core.MasterData.Interfaces;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Database;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Execution;
 using Warehouse.StockEngine.Infrastructure.MariaDb.Factories;
+using Warehouse.StockEngine.Core.StockWorkflow.Receipt.Interfaces;
 using Warehouse.StockEngine.Infrastructure.MariaDb.MasterData.Repositories;
+using Warehouse.StockEngine.Infrastructure.MariaDb.StockWorkflow.Receipt;
 
 namespace Warehouse.StockEngine.Infrastructure.MariaDb.DependencyInjection;
 
@@ -62,7 +64,15 @@ public static class StockEngineServiceCollectionExtensions
         services.TryAdd(ServiceDescriptor.Describe(typeof(IStockEngine),
             sp => sp.GetRequiredService<MariaDbStockEngine>(), engineLifetime));
 
-        return services.AddMasterDataRepositories();
+        return services
+            .AddMasterDataRepositories()
+            .AddReceiptWorkflow();
+    }
+
+    private static IServiceCollection AddReceiptWorkflow(this IServiceCollection services)
+    {
+        services.TryAddScoped<IReceiptWorkflow, MariaDbReceiptWorkflow>();
+        return services;
     }
 
     private static IServiceCollection AddMasterDataRepositories(this IServiceCollection services)
