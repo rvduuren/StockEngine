@@ -21,59 +21,86 @@ public sealed class MariaDbStockEngine : IStockEngine
     public Task<StockResult> InboundAsync(InboundStockCommand command, CancellationToken cancellationToken = default)
     {
         CommandValidator.Validate(command);
-        return ExecuteAsync(
+        return ExecuteWithOwnedTransactionAsync(
             command.TransactionId,
             RequestHasher.Hash(command),
             MovementType.Inbound,
             AuditFrom(command.Source, command.UserId, command.DeviceId, command.ReasonCode),
-            async (conn, tx) =>
-            {
-                var keys = command.Lines.Select(l => new InventoryKey(l.Warehouse, l.Zone, l.Bin, l.Product));
-                var balances = await LockLocationsAsync(conn, tx, keys, cancellationToken);
-
-                var historyRows = 0;
-                foreach (var line in command.Lines)
-                {
-                    var key = new InventoryKey(line.Warehouse, line.Zone, line.Bin, line.Product);
-                    var before = balances[key];
-
-                    await conn.ExecuteAsync(new CommandDefinition(
-                        InboundQueries.Apply,
-                        new
-                        {
-                            Quantity = line.Quantity,
-                            line.Warehouse,
-                            line.Zone,
-                            line.Bin,
-                            Product = line.Product
-                        },
-                        tx,
-                        cancellationToken: cancellationToken));
-
-                    var after = before + line.Quantity;
-                    balances[key] = after;
-
-                    await InsertHistoryAsync(
-                        conn, tx,
-                        command.TransactionId, command.DocumentNo, line.DocumentLineId,
-                        MovementType.Inbound,
-                        line.Warehouse, line.Zone, line.Bin, line.Product,
-                        line.Quantity, before, after,
-                        countedQuantity: null,
-                        reasonCode: null,
-                        cancellationToken);
-                    historyRows++;
-                }
-
-                return historyRows;
-            },
+            (conn, tx) => ExecuteInboundWorkAsync(command, conn, tx, cancellationToken),
             cancellationToken);
+    }
+
+    public Task<StockResult> InboundAsync(
+        InboundStockCommand command,
+        DbConnection connection,
+        DbTransaction transaction,
+        CancellationToken cancellationToken = default)
+    {
+        CommandValidator.Validate(command);
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(transaction);
+
+        return ExecuteOnCallerTransactionAsync(
+            connection,
+            transaction,
+            command.TransactionId,
+            RequestHasher.Hash(command),
+            MovementType.Inbound,
+            AuditFrom(command.Source, command.UserId, command.DeviceId, command.ReasonCode),
+            (conn, tx) => ExecuteInboundWorkAsync(command, conn, tx, cancellationToken),
+            cancellationToken);
+    }
+
+    private static async Task<int> ExecuteInboundWorkAsync(
+        InboundStockCommand command,
+        DbConnection conn,
+        DbTransaction tx,
+        CancellationToken cancellationToken)
+    {
+        var keys = command.Lines.Select(l => new InventoryKey(l.Warehouse, l.Zone, l.Bin, l.Product));
+        var balances = await LockLocationsAsync(conn, tx, keys, cancellationToken);
+
+        var historyRows = 0;
+        foreach (var line in command.Lines)
+        {
+            var key = new InventoryKey(line.Warehouse, line.Zone, line.Bin, line.Product);
+            var before = balances[key];
+
+            await conn.ExecuteAsync(new CommandDefinition(
+                InboundQueries.Apply,
+                new
+                {
+                    Quantity = line.Quantity,
+                    line.Warehouse,
+                    line.Zone,
+                    line.Bin,
+                    Product = line.Product
+                },
+                tx,
+                cancellationToken: cancellationToken));
+
+            var after = before + line.Quantity;
+            balances[key] = after;
+
+            await InsertHistoryAsync(
+                conn, tx,
+                command.TransactionId, command.DocumentNo, line.DocumentLineId,
+                MovementType.Inbound,
+                line.Warehouse, line.Zone, line.Bin, line.Product,
+                line.Quantity, before, after,
+                countedQuantity: null,
+                reasonCode: null,
+                cancellationToken);
+            historyRows++;
+        }
+
+        return historyRows;
     }
 
     public Task<StockResult> OutboundAsync(OutboundStockCommand command, CancellationToken cancellationToken = default)
     {
         CommandValidator.Validate(command);
-        return ExecuteAsync(
+        return ExecuteWithOwnedTransactionAsync(
             command.TransactionId,
             RequestHasher.Hash(command),
             MovementType.Outbound,
@@ -131,7 +158,7 @@ public sealed class MariaDbStockEngine : IStockEngine
     public Task<StockResult> MoveAsync(MoveStockCommand command, CancellationToken cancellationToken = default)
     {
         CommandValidator.Validate(command);
-        return ExecuteAsync(
+        return ExecuteWithOwnedTransactionAsync(
             command.TransactionId,
             RequestHasher.Hash(command),
             MovementType.Move,
@@ -223,7 +250,7 @@ public sealed class MariaDbStockEngine : IStockEngine
     public Task<StockResult> CountAsync(CountStockCommand command, CancellationToken cancellationToken = default)
     {
         CommandValidator.Validate(command);
-        return ExecuteAsync(
+        return ExecuteWithOwnedTransactionAsync(
             command.TransactionId,
             RequestHasher.Hash(command),
             MovementType.Count,
@@ -291,7 +318,28 @@ public sealed class MariaDbStockEngine : IStockEngine
         return quantity ?? 0m;
     }
 
-    private async Task<StockResult> ExecuteAsync(
+    private async Task<StockResult> ExecuteOnCallerTransactionAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        Guid transactionId,
+        string requestHash,
+        MovementType movementType,
+        TransactionAudit audit,
+        Func<DbConnection, DbTransaction, Task<int>> work,
+        CancellationToken cancellationToken)
+    {
+        var claim = await TryClaimAsync(connection, transaction, transactionId, requestHash, movementType, audit, cancellationToken);
+        if (!claim.IsNew)
+        {
+            return new StockResult(transactionId, WasAlreadyProcessed: true, claim.ExistingHistoryRows);
+        }
+
+        var historyRows = await work(connection, transaction);
+        await CompleteTransactionAsync(connection, transaction, transactionId, cancellationToken);
+        return new StockResult(transactionId, WasAlreadyProcessed: false, historyRows);
+    }
+
+    private async Task<StockResult> ExecuteWithOwnedTransactionAsync(
         Guid transactionId,
         string requestHash,
         MovementType movementType,
