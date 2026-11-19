@@ -225,7 +225,7 @@ public sealed class MasterDataRepositoryIntegrationTests
     }
 
     [Fact]
-    public async Task GetAllAsync_ReturnsCreatedEntities()
+    public async Task Warehouse_GetAllAsync_ReturnsCreatedEntity()
     {
         var repo = ResolveWarehouse();
         var code = UniqueCode("ALL");
@@ -233,6 +233,128 @@ public sealed class MasterDataRepositoryIntegrationTests
 
         var all = await repo.GetAllAsync();
         Assert.Contains(all, w => w.Id == id);
+    }
+
+    [Fact]
+    public async Task Product_GetAllAsync_ReturnsCreatedEntity()
+    {
+        var repo = ResolveProduct();
+        var id = await repo.CreateAsync(new Product { Code = UniqueCode("ALL-P"), Description = "Listed" });
+
+        var all = await repo.GetAllAsync();
+        Assert.Contains(all, p => p.Id == id);
+    }
+
+    [Fact]
+    public async Task Zone_GetAllAsync_ReturnsCreatedEntity()
+    {
+        var warehouses = ResolveWarehouse();
+        var zones = ResolveZone();
+        var warehouseId = await warehouses.CreateAsync(new Core.MasterData.Entities.Warehouse
+        {
+            Code = UniqueCode("WH-ALL-Z"),
+            Name = "Zone list WH",
+        });
+        var id = await zones.CreateAsync(new Zone
+        {
+            WarehouseId = warehouseId,
+            Code = UniqueCode("Z-ALL"),
+            Name = "Listed zone",
+        });
+
+        var all = await zones.GetAllAsync();
+        Assert.Contains(all, z => z.Id == id);
+    }
+
+    [Fact]
+    public async Task Bin_GetAllAsync_ReturnsCreatedEntity()
+    {
+        var warehouses = ResolveWarehouse();
+        var zones = ResolveZone();
+        var bins = ResolveBin();
+        var warehouseId = await warehouses.CreateAsync(new Core.MasterData.Entities.Warehouse
+        {
+            Code = UniqueCode("WH-ALL-B"),
+            Name = "Bin list WH",
+        });
+        var zoneId = await zones.CreateAsync(new Zone
+        {
+            WarehouseId = warehouseId,
+            Code = UniqueCode("Z-ALL-B"),
+            Name = "Bin list zone",
+        });
+        var id = await bins.CreateAsync(new Bin { ZoneId = zoneId, Code = UniqueCode("B-ALL"), Name = "Listed bin" });
+
+        var all = await bins.GetAllAsync();
+        Assert.Contains(all, b => b.Id == id);
+    }
+
+    [Fact]
+    public async Task Warehouse_Search_MatchesName()
+    {
+        var repo = ResolveWarehouse();
+        var name = $"Searchable-{Guid.NewGuid():N}"[..20];
+        var id = await repo.CreateAsync(new Core.MasterData.Entities.Warehouse
+        {
+            Code = UniqueCode("WH-NAME"),
+            Name = name,
+        });
+
+        var search = await repo.SearchAsync(new MasterDataSearchRequest { SearchTerm = name });
+        Assert.Contains(search.Items, w => w.Id == id);
+    }
+
+    [Fact]
+    public async Task Product_GetByIdAsync_ReturnsCreatedEntity()
+    {
+        var repo = ResolveProduct();
+        var code = UniqueCode("BY-ID");
+        var id = await repo.CreateAsync(new Product { Code = code, Description = "Lookup by id" });
+
+        var byId = await repo.GetByIdAsync(id);
+        Assert.NotNull(byId);
+        Assert.Equal(code, byId.Code);
+    }
+
+    [Fact]
+    public async Task Product_UpdateMissingId_ReturnsFalse()
+    {
+        var repo = ResolveProduct();
+
+        Assert.False(await repo.UpdateAsync(new Product
+        {
+            Id = 9_999_999,
+            Code = UniqueCode("GHOST-P"),
+            Description = "Missing",
+        }));
+    }
+
+    [Fact]
+    public async Task Zone_UpdateMissingId_ReturnsFalse()
+    {
+        var zones = ResolveZone();
+
+        Assert.False(await zones.UpdateAsync(new Zone
+        {
+            Id = 9_999_999,
+            WarehouseId = 1,
+            Code = UniqueCode("GHOST-Z"),
+            Name = "Missing",
+        }));
+    }
+
+    [Fact]
+    public async Task Bin_UpdateMissingId_ReturnsFalse()
+    {
+        var bins = ResolveBin();
+
+        Assert.False(await bins.UpdateAsync(new Bin
+        {
+            Id = 9_999_999,
+            ZoneId = 1,
+            Code = UniqueCode("GHOST-B"),
+            Name = "Missing",
+        }));
     }
 
     [Fact]
@@ -256,18 +378,30 @@ public sealed class MasterDataRepositoryIntegrationTests
         Assert.Equal(ordered, ordered.OrderBy(c => c, StringComparer.Ordinal).ToList());
     }
 
-    private IMasterDataRepository<Core.MasterData.Entities.Warehouse> ResolveWarehouse() =>
-        _fixture.Services.CreateScope().ServiceProvider
+    private IMasterDataRepository<Core.MasterData.Entities.Warehouse> ResolveWarehouse()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        return scope.ServiceProvider
             .GetRequiredService<IMasterDataRepository<Core.MasterData.Entities.Warehouse>>();
+    }
 
-    private IMasterDataRepository<Product> ResolveProduct() =>
-        _fixture.Services.CreateScope().ServiceProvider.GetRequiredService<IMasterDataRepository<Product>>();
+    private IMasterDataRepository<Product> ResolveProduct()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        return scope.ServiceProvider.GetRequiredService<IMasterDataRepository<Product>>();
+    }
 
-    private IZoneRepository ResolveZone() =>
-        _fixture.Services.CreateScope().ServiceProvider.GetRequiredService<IZoneRepository>();
+    private IZoneRepository ResolveZone()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        return scope.ServiceProvider.GetRequiredService<IZoneRepository>();
+    }
 
-    private IBinRepository ResolveBin() =>
-        _fixture.Services.CreateScope().ServiceProvider.GetRequiredService<IBinRepository>();
+    private IBinRepository ResolveBin()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        return scope.ServiceProvider.GetRequiredService<IBinRepository>();
+    }
 
     private static string UniqueCode(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..24];
 }

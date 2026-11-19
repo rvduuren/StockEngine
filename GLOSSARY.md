@@ -5,7 +5,7 @@ High-performance, transactional inventory mutations and reference data for wareh
 ## Language
 
 **Master data**:
-Durable reference records—warehouses, zones, bins, and products—that describe where stock can live and what SKU is stored. Managed through `IMasterDataRepository<T>`; not the same layer as stock mutations (`IStockEngine`).
+Durable reference records—warehouses, zones, bins, and products—that describe where stock can live and which product is tracked. Managed through `IMasterDataRepository<T>`; not the same layer as stock mutations (`IStockEngine`).
 _Avoid_: Stamgegevens (in English-facing specs), configuration tables (too generic)
 
 **Product**:

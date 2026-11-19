@@ -80,7 +80,7 @@ Het project maakt gebruik van moderne, bleeding-edge .NET technologieën:
 
 ### 4.1 Locatie- en Voorraadmodel
 Locaties worden 4-dimensionaal en numeriek geadresseerd:
-$$\text{Locatie} = (\text{Warehouse: } \text{int}, \text{Zone: } \text{int}, \text{Bin: } \text{int}, \text{Sku: } \text{long})$$
+$$\text{Locatie} = (\text{Warehouse: } \text{int}, \text{Zone: } \text{int}, \text{Bin: } \text{int}, \text{Product: } \text{int})$$
 
 De database bevat drie kerntabellen:
 1. `inventory`: De actuele stand per `(warehouse, zone, bin, sku)`. Voorzien van check constraint `quantity >= 0`.

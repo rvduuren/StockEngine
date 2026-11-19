@@ -44,6 +44,15 @@ When your output names a domain concept (in an issue title, a refactor proposal,
 
 If the concept you need isn't in the glossary yet, that's a signal: either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/domain-modeling`).
 
+## Term rename sweep
+
+When you **add, rename, or deprecate** a term in `GLOSSARY.md`, finish with a **vocabulary drift** check before you call the work done:
+
+1. Grep markdown for the **old** symbol and for synonyms the glossary now avoids (`GLOSSARY.md`, `PROJECT_OVERVIEW.md`, `docs/**/*.md`, and any other root-level `*.md`).
+2. Update every hit to the new vocabulary, or leave it only when the old name is intentionally preserved (e.g. a DB column or API field called out in the glossary).
+
+The glossary itself must not contradict the rename (definitions still saying "SKU" while the canonical term is `Product`, and the like).
+
 ## Flag ADR conflicts
 
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:

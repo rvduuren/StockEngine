@@ -28,9 +28,7 @@ public static class StockEngineServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
 
-        return services
-            .AddMariaDbStockEngine(_ => connectionString, engineLifetime)
-            .AddMasterDataRepositories();
+        return services.AddMariaDbStockEngine(_ => connectionString, engineLifetime);
     }
 
     /// <summary>
