@@ -63,6 +63,10 @@ public sealed class DependencyInjectionTests
         var connectionFactory = provider.GetRequiredService<IDbConnectionFactory>();
         Assert.True(factoryInvoked);
         Assert.NotNull(connectionFactory);
+
+        using var scope = provider.CreateScope();
+        Assert.NotNull(scope.ServiceProvider.GetService<IMasterDataRepository<Product>>());
+        Assert.NotNull(scope.ServiceProvider.GetService<IZoneRepository>());
     }
 
     [Fact]

@@ -28,14 +28,9 @@ public static class StockEngineServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
 
-        services.TryAddScoped<IMasterDataRepository<Product>, ProductRepository>();
-        services.TryAddScoped<IMasterDataRepository<Core.MasterData.Entities.Warehouse>, WarehouseRepository>();
-        services.TryAddScoped<IMasterDataRepository<Zone>, ZoneRepository>();
-        services.TryAddScoped<IMasterDataRepository<Bin>, BinRepository>();
-        services.TryAddScoped<IZoneRepository, ZoneRepository>();
-        services.TryAddScoped<IBinRepository, BinRepository>();
-
-        return services.AddMariaDbStockEngine(_ => connectionString, engineLifetime);
+        return services
+            .AddMariaDbStockEngine(_ => connectionString, engineLifetime)
+            .AddMasterDataRepositories();
     }
 
     /// <summary>
@@ -68,6 +63,18 @@ public static class StockEngineServiceCollectionExtensions
             engineLifetime));
         services.TryAdd(ServiceDescriptor.Describe(typeof(IStockEngine),
             sp => sp.GetRequiredService<MariaDbStockEngine>(), engineLifetime));
+
+        return services.AddMasterDataRepositories();
+    }
+
+    private static IServiceCollection AddMasterDataRepositories(this IServiceCollection services)
+    {
+        services.TryAddScoped<IMasterDataRepository<Product>, ProductRepository>();
+        services.TryAddScoped<IMasterDataRepository<Core.MasterData.Entities.Warehouse>, WarehouseRepository>();
+        services.TryAddScoped<IMasterDataRepository<Zone>, ZoneRepository>();
+        services.TryAddScoped<IMasterDataRepository<Bin>, BinRepository>();
+        services.TryAddScoped<IZoneRepository, ZoneRepository>();
+        services.TryAddScoped<IBinRepository, BinRepository>();
 
         return services;
     }
