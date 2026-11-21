@@ -1,6 +1,6 @@
-# Testing
+# Testing (master data)
 
-Patterns for integration and review coverage in this repo.
+Patterns for master-data integration and review coverage. Workflow ports and ledger invariants: [`workflow-testing.md`](workflow-testing.md).
 
 ## Shared repository CRUD parity
 

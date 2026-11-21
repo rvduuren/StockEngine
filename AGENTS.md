@@ -14,4 +14,5 @@ Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents
 
 ### Testing
 
-Shared master-data repository integration coverage. See `docs/agents/testing.md`.
+- **Master data:** shared repository CRUD parity — `docs/agents/testing.md`.
+- **Workflows:** engine/workflow integration, ledger assertions — `docs/agents/workflow-testing.md`.
