@@ -45,6 +45,10 @@ Optimistic concurrency on `inventory` (e.g. row version) is not implemented yet;
 │   └── Warehouse.StockEngine.Infrastructure.MariaDb
 └── tests
     └── Warehouse.StockEngine.Tests
+        └── Integration/
+            ├── MasterData/       # repository CRUD integration tests
+            ├── StockWorkflow/    # e.g. IReceiptWorkflow
+            └── …                 # InboundTests, MoveTests, etc.
 ```
 
 ## Requirements
