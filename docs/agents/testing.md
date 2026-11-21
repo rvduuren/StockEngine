@@ -1,5 +1,7 @@
 # Testing (master data)
 
+Merge gate: [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs `dotnet restore`, `build`, and `test` (Testcontainers; excludes NBomber load tests).
+
 Patterns for master-data integration and review coverage. Workflow ports and ledger invariants: [`workflow-testing.md`](workflow-testing.md).
 
 ## Shared repository CRUD parity
