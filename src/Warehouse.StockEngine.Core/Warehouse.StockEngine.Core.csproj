@@ -7,6 +7,8 @@
     <Nullable>enable</Nullable>
     <RootNamespace>Warehouse.StockEngine.Core</RootNamespace>
     <AssemblyName>Warehouse.StockEngine.Core</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>Warehouse.StockEngine.Core</PackageId>
     <Description>Transactional, idempotent stock engine contracts for WMS.</Description>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
