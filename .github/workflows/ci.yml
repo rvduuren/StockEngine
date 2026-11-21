@@ -21,6 +21,7 @@ jobs:
       - name: Build
         run: dotnet build Warehouse.StockEngine.slnx --no-restore --configuration Release
 
+      # NBomber endurance load tests stay local (issue #19 out of scope).
       - name: Test
         run: >
           dotnet test Warehouse.StockEngine.slnx
