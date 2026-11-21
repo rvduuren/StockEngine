@@ -64,6 +64,8 @@ dotnet build
 dotnet test
 ```
 
+Merges to `main` require the [CI workflow](.github/workflows/ci.yml) (`dotnet test` with Testcontainers; NBomber load tests stay local).
+
 Load test (NBomber):
 
 ```bash
