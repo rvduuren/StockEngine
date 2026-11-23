@@ -1,8 +1,26 @@
 # Testing (master data)
 
-Merge gate: [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs `dotnet restore`, `build`, and `test` (Testcontainers; excludes NBomber load tests).
-
 Patterns for master-data integration and review coverage. Workflow ports and ledger invariants: [`workflow-testing.md`](workflow-testing.md).
+
+Packaging, CI scope, and release policy: [ADR-0001](../adr/0001-github-packages-ci-and-releases.md).
+
+## CI vs local `dotnet test`
+
+| | CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) | Local (full suite) |
+|---|-----|--------|
+| **Triggers** | PRs and pushes to `main` | Anytime |
+| **Configuration** | Release | Usually Debug or Release |
+| **Test scope** | All tests **except** NBomber load (`FullyQualifiedName!~StockEngineLoadTests`) | Unfiltered `dotnet test` includes `StockEngineLoadTests` |
+| **Docker** | Required (GitHub-hosted runner provides Docker for Testcontainers) | Required for integration and load tests |
+| **NuGet publish** | **No** — merge gate is test-only | N/A |
+
+A green CI run does **not** mean load tests passed; run them locally when changing concurrency, performance, or ledger audits:
+
+```bash
+dotnet test --filter FullyQualifiedName~StockEngineLoadTests
+```
+
+**Tag-only publish:** pushing to `main` or merging a PR does **not** push NuGet packages. Releases are **`v*` git tags** that drive pack/push to **GitHub Packages** (never nuget.org), with lockstep versions for Core and MariaDb—see ADR-0001 and issue #24.
 
 ## Shared repository CRUD parity
 
